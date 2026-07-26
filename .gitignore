@@ -1,0 +1,13 @@
+node_modules/
+dist/
+client/dist/
+data/*
+!data/.gitkeep
+downloads/*
+!downloads/.gitkeep
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.torrent

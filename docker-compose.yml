@@ -1,0 +1,24 @@
+services:
+  newbookbot:
+    build: .
+    container_name: newbookbot
+    restart: unless-stopped
+    ports:
+      - "7480:7480"
+    environment:
+      - PORT=7480
+      - HOST=0.0.0.0
+      - DATA_DIR=/app/data
+      - DOWNLOADS_DIR=/app/downloads
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-changeme}
+      - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-long-random-string}
+    volumes:
+      - nbb_data:/app/data
+      - nbb_downloads:/app/downloads
+    # If qBittorrent runs on the host (Linux), use host.docker.internal or host network.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  nbb_data:
+  nbb_downloads:
