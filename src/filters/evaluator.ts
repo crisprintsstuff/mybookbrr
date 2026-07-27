@@ -1,17 +1,5 @@
 import type { FilterEvaluation, FilterRule, Release } from '../types.js';
-
-function windowMs(period: FilterRule['limitPeriod']): number {
-  switch (period) {
-    case 'daily':
-      return 24 * 60 * 60 * 1000;
-    case 'weekly':
-      return 7 * 24 * 60 * 60 * 1000;
-    case 'monthly':
-      return 30 * 24 * 60 * 60 * 1000;
-    default:
-      return 0;
-  }
-}
+import { getLimitUsage } from './limitUsage.js';
 
 function formatsAllowAll(formats: string[] | undefined): boolean {
   if (!formats?.length) return true;
@@ -39,18 +27,11 @@ export function evaluateRelease(release: Release, filters: FilterRule[]): Filter
 
   for (const filter of active) {
     const failures: string[] = [];
-    const limitPeriod = filter.limitPeriod || 'unlimited';
-    const maxDownloads = Number(filter.maxDownloads || 0);
-
-    if (limitPeriod !== 'unlimited' && maxDownloads > 0) {
-      const ms = windowMs(limitPeriod);
-      const now = Date.now();
-      const recent = (filter.snatchHistoryTimestamps || []).filter((ts) => now - ts < ms);
-      if (recent.length >= maxDownloads) {
-        failures.push(
-          `Download limit reached (${recent.length}/${maxDownloads} in ${limitPeriod} window)`
-        );
-      }
+    const usage = getLimitUsage(filter);
+    if (usage.atLimit) {
+      failures.push(
+        `Download limit reached (${usage.used}/${usage.max} in ${usage.period} window)`
+      );
     }
 
     // Constraint checks apply to normal rules and catch-all (formats / media / FL / size).

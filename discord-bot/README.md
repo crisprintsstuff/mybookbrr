@@ -30,6 +30,7 @@ Lives in the MyBookBRR monorepo under `discord-bot/`. Talks to the local `/api/v
 |---------|-------------|
 | `/mbb_status` | IRC, wishlist, snatch count, unsatisfied lockout |
 | `/mbb_irc` | Start or stop IRC |
+| `/mbb_unsatisfied_clear` | Clear MAM lockout and re-enable auto-disabled filters |
 | `/mbb_snatches` | Recent snatches |
 | `/mbb_events` | Recent events |
 | `/mbb_filters` | List filters |
@@ -38,3 +39,7 @@ Lives in the MyBookBRR monorepo under `discord-bot/`. Talks to the local `/api/v
 | `/mbb_setup_panel` | Deploy interactive control panel (role-gated) |
 
 Mutating actions require the Discord role in `ALLOWED_ROLE_ID`.
+
+## Portal IPC
+
+Listens on `127.0.0.1:9998` (config `IPC_PORT`) for `{ "action": "deploy_panel", "channel_id": "..." }` from the OmegaBot portal Broadcast Embed control.

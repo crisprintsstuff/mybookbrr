@@ -11,6 +11,7 @@ import {
   saveFilter,
   saveWatch,
 } from '../db/repos.js';
+
 import { searchTorrents, testMamSession } from '../mam/client.js';
 import { mamHitToRelease } from '../wishlist/matcher.js';
 import { getWishlistStatus, pollWishlistOnce, runWatchNow } from '../wishlist/poller.js';
@@ -22,7 +23,15 @@ import {
   clearUnsatisfiedLockout,
   getUnsatisfiedStatus,
 } from '../filters/unsatisfiedGuard.js';
+import {
+  clearTimedLockout,
+  getTimedLockoutStatus,
+  setTimedLockout,
+} from '../filters/timedLockout.js';
 import { requireRole, requireUser } from '../auth/rbac.js';
+import { runDatabaseBackup } from '../db/backup.js';
+import { dryRunFilter } from '../filters/dryRun.js';
+import { enrichFilterWithLimit } from '../filters/limitUsage.js';
 import { buildStatusPayload } from './statusHelpers.js';
 import type { FilterRule, WishlistWatch } from '../types.js';
 
@@ -153,9 +162,27 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     return testQbittorrent(overrides);
   });
 
+  app.post('/api/backup', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    try {
+      const dest = await runDatabaseBackup('manual-ui');
+      return {
+        ok: true,
+        path: dest,
+        file: dest.split(/[/\\]/).pop(),
+        at: new Date().toISOString(),
+      };
+    } catch (err) {
+      return reply.code(500).send({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   app.get('/api/filters', async (req, reply) => {
     if (!requireUser(req, reply)) return;
-    return listFilters();
+    return listFilters().map((f) => enrichFilterWithLimit(f));
   });
 
   app.post('/api/filters', async (req, reply) => {
@@ -176,6 +203,18 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  app.post('/api/filters/:id/dry-run', async (req, reply) => {
+    if (!requireUser(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const filter = getFilter(id);
+    if (!filter) return reply.code(404).send({ error: 'Filter not found' });
+    const body = (req.body || {}) as { limit?: number; ignoreLimits?: boolean };
+    return dryRunFilter(filter, {
+      limit: body.limit,
+      ignoreLimits: body.ignoreLimits !== false,
+    });
+  });
+
   app.get('/api/filters/unsatisfied', async (req, reply) => {
     if (!requireUser(req, reply)) return;
     return getUnsatisfiedStatus();
@@ -190,6 +229,55 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
       ...result,
     });
     return { ok: true, ...result, unsatisfied: getUnsatisfiedStatus() };
+  });
+
+  app.get('/api/filters/timed-lockout', async (req, reply) => {
+    if (!requireUser(req, reply)) return;
+    return getTimedLockoutStatus();
+  });
+
+  app.post('/api/filters/timed-lockout', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const body = (req.body || {}) as {
+      until?: string;
+      hours?: number;
+      minutes?: number;
+      note?: string;
+      disableFilters?: boolean;
+    };
+    try {
+      let until: Date | null = null;
+      if (body.until) {
+        until = new Date(body.until);
+      } else if (body.hours != null || body.minutes != null) {
+        const ms =
+          (Number(body.hours) || 0) * 3_600_000 + (Number(body.minutes) || 0) * 60_000;
+        if (ms <= 0) {
+          return reply.code(400).send({ error: 'hours/minutes must be positive' });
+        }
+        until = new Date(Date.now() + ms);
+      }
+      if (!until || Number.isNaN(until.getTime())) {
+        return reply.code(400).send({ error: 'Provide until (ISO) or hours/minutes' });
+      }
+      const status = await setTimedLockout({
+        until,
+        note: body.note,
+        disableFilters: body.disableFilters,
+      });
+      return { ok: true, timedLockout: status };
+    } catch (err) {
+      return reply
+        .code(400)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/filters/timed-lockout/clear', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const body = (req.body || {}) as { reenableFilters?: boolean };
+    const result = clearTimedLockout(body.reenableFilters !== false);
+    return { ok: true, ...result, timedLockout: getTimedLockoutStatus() };
   });
 
   app.post('/api/filters/test-discord', async (req, reply) => {
