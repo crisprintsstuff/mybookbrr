@@ -53,7 +53,7 @@ function releaseFields(release: Release, extras: Array<{ name: string; value: st
 export async function sendDiscordWebhook(
   webhookUrl: string,
   embed: DiscordEmbed,
-  username = 'Newbookbot'
+  username = 'MyBookBRR'
 ): Promise<void> {
   if (!isValidWebhook(webhookUrl)) return;
   const res = await httpRequest(webhookUrl.trim(), {
@@ -68,7 +68,7 @@ export async function sendDiscordWebhook(
           url: embed.url,
           color: embed.color ?? 0x2d6a4f,
           fields: (embed.fields || []).slice(0, 25),
-          footer: embed.footer || { text: 'Newbookbot • MyAnonamouse' },
+          footer: embed.footer || { text: 'MyBookBRR • MyAnonamouse' },
           timestamp: embed.timestamp || new Date().toISOString(),
         },
       ],
@@ -101,9 +101,9 @@ export async function notifyReleaseStream(release: Release): Promise<void> {
         color: 0x3b82f6,
         description: 'Release stream',
         fields: releaseFields(release),
-        footer: { text: 'Newbookbot • Release stream' },
+        footer: { text: 'MyBookBRR • Release stream' },
       },
-      'Newbookbot Stream'
+      'MyBookBRR Stream'
     );
   } catch (err) {
     console.warn('[Discord] stream webhook failed:', err instanceof Error ? err.message : err);
@@ -136,9 +136,9 @@ export async function notifySnatchSuccess(
           field('Save path', opts.savePath || filter?.savePath || getSetting('qbit_save_path') || '—', false),
           field('Detail', detail || 'OK', false),
         ]),
-        footer: { text: filter?.discordWebhookUrl ? `Newbookbot • Filter: ${filter.name}` : 'Newbookbot • Snatch' },
+        footer: { text: filter?.discordWebhookUrl ? `MyBookBRR • Filter: ${filter.name}` : 'MyBookBRR • Snatch' },
       },
-      'Newbookbot Snatch'
+      'MyBookBRR Snatch'
     );
   } catch (err) {
     console.warn('[Discord] snatch webhook failed:', err instanceof Error ? err.message : err);
@@ -165,9 +165,9 @@ export async function notifySnatchError(
           field('Filter', filterName || '—'),
           field('Error', error || 'Unknown error', false),
         ]),
-        footer: { text: 'Newbookbot • Errors' },
+        footer: { text: 'MyBookBRR • Errors' },
       },
-      'Newbookbot Errors'
+      'MyBookBRR Errors'
     );
   } catch (err) {
     console.warn('[Discord] error webhook failed:', err instanceof Error ? err.message : err);
@@ -175,7 +175,7 @@ export async function notifySnatchError(
 }
 
 /** Generic system/error embed (non-release). */
-export async function notifySystemError(event: string, message: string, component = 'Newbookbot'): Promise<void> {
+export async function notifySystemError(event: string, message: string, component = 'MyBookBRR'): Promise<void> {
   const webhook = webhookSetting('discord_webhook_errors', 'discord_webhook_url');
   if (!webhook) return;
   try {
@@ -188,9 +188,9 @@ export async function notifySystemError(event: string, message: string, componen
           field('Details', message || '—', false),
           field('Component', component),
         ],
-        footer: { text: 'Newbookbot • Errors' },
+        footer: { text: 'MyBookBRR • Errors' },
       },
-      'Newbookbot Errors'
+      'MyBookBRR Errors'
     );
   } catch (err) {
     console.warn('[Discord] system webhook failed:', err instanceof Error ? err.message : err);
@@ -215,7 +215,7 @@ export type DiscordWebhookChannel = 'stream' | 'errors' | 'snatch';
 
 const SAMPLE_RELEASE: Release = {
   torrentId: '0',
-  title: 'Newbookbot webhook test',
+  title: 'MyBookBRR webhook test',
   author: 'Test Author',
   series: 'Test Series #1',
   narrator: 'Test Narrator',
@@ -269,9 +269,9 @@ export async function testDiscordWebhook(
           color: 0x3b82f6,
           description: 'Test: release stream webhook',
           fields: releaseFields(SAMPLE_RELEASE),
-          footer: { text: 'Newbookbot • Release stream (test)' },
+          footer: { text: 'MyBookBRR • Release stream (test)' },
         },
-        'Newbookbot Stream'
+        'MyBookBRR Stream'
       );
     } else if (channel === 'errors') {
       await sendDiscordWebhook(
@@ -282,9 +282,9 @@ export async function testDiscordWebhook(
           color: 0x9b2226,
           description: 'Test: errors webhook',
           fields: releaseFields(SAMPLE_RELEASE, [field('Error', 'This is a test error embed', false)]),
-          footer: { text: 'Newbookbot • Errors (test)' },
+          footer: { text: 'MyBookBRR • Errors (test)' },
         },
-        'Newbookbot Errors'
+        'MyBookBRR Errors'
       );
     } else {
       const label = filterLabel || 'Webhook Test';
@@ -300,9 +300,9 @@ export async function testDiscordWebhook(
             field('Client', 'qbittorrent'),
             field('Detail', 'Test snatch embed — ignore', false),
           ]),
-          footer: { text: `Newbookbot • Filter snatch (test): ${label}` },
+          footer: { text: `MyBookBRR • Filter snatch (test): ${label}` },
         },
-        'Newbookbot Snatch'
+        'MyBookBRR Snatch'
       );
     }
     return { ok: true, message: `Test ${channel} embed sent. Check Discord.` };

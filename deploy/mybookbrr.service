@@ -1,0 +1,17 @@
+[Unit]
+Description=MyBookBRR MAM auto-snatch API + UI
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cris/newprojects/mybookbrr
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=-/home/cris/newprojects/mybookbrr/.env
+StandardOutput=append:/home/cris/newprojects/mybookbrr/data/mybookbrr.log
+StandardError=append:/home/cris/newprojects/mybookbrr/data/mybookbrr.log
+
+[Install]
+WantedBy=default.target

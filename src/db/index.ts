@@ -97,6 +97,57 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  must_change_password INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  ip TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  revoked_at TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  key_prefix TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  expires_at TEXT,
+  last_used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+  ip TEXT NOT NULL,
+  attempted_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, attempted_at);
 `;
 
 export function getDataDir(): string {
@@ -112,7 +163,11 @@ export function initDb(dbPath?: string): Db {
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(getDownloadsDir(), { recursive: true });
 
-  const file = dbPath || path.join(dataDir, 'newbookbot.db');
+  const preferred = path.join(dataDir, 'mybookbrr.db');
+  const legacy = path.join(dataDir, 'newbookbot.db');
+  const file =
+    dbPath ||
+    (fs.existsSync(preferred) ? preferred : fs.existsSync(legacy) ? legacy : preferred);
   db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
@@ -121,7 +176,7 @@ export function initDb(dbPath?: string): Db {
   // Seed defaults
   const defaults: Record<string, string> = {
     mam_id: '',
-    irc_nick: 'Newbookbot',
+    irc_nick: 'MyBookBRR',
     irc_nickserv_password: '',
     irc_enabled: 'false',
     irc_host: 'irc.myanonamouse.net',

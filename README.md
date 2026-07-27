@@ -1,4 +1,4 @@
-# Newbookbot
+# MyBookBRR
 
 Autobrr-style MyAnonamouse auto-downloader with **IRC `#announce` snatching** and **wishlist/search polling**. Snatches push to **qBittorrent** (or a watch folder).
 
@@ -10,14 +10,15 @@ Autobrr-style MyAnonamouse auto-downloader with **IRC `#announce` snatching** an
 - Manual search + one-click snatch
 - Cookie rotation persistence for `mam_id`
 - Discord webhook notifications
-- Single-user password auth + SQLite
+- Multi-user auth (`admin` / `viewer`) with SQLite sessions
+- Scoped API keys + versioned external API (`/api/v1`) for bots and monitors
 
 ## Quick start (local)
 
 ```bash
-cd newbookbot
+cd mybookbrr
 cp .env.example .env
-# edit AUTH_PASSWORD
+# set BOOTSTRAP_ADMIN_PASSWORD (first boot only)
 npm install
 # Debian/Ubuntu Node: native modules often need a local rebuild
 npm run rebuild:native
@@ -34,8 +35,8 @@ Open http://127.0.0.1:7480 (after `npm run build`) or http://127.0.0.1:5174 in d
 ## Docker
 
 ```bash
-cd newbookbot
-export AUTH_PASSWORD='your-password'
+cd mybookbrr
+export BOOTSTRAP_ADMIN_PASSWORD='your-password'
 docker compose up -d --build
 ```
 
@@ -46,8 +47,8 @@ Set qBittorrent host to `http://host.docker.internal:8080` (or your LAN IP) in S
 ## MAM session setup (important)
 
 1. Log into [MyAnonamouse](https://www.myanonamouse.net/)
-2. **Preferences → Security** → create a **new session** dedicated to Newbookbot
-3. Bind the IP of the machine that will run Newbookbot (or enable dynamic seedbox IP if needed)
+2. **Preferences → Security** → create a **new session** dedicated to MyBookBRR
+3. Bind the IP of the machine that will run MyBookBRR (or enable dynamic seedbox IP if needed)
 4. Copy the `mam_id` cookie value into **Settings → mam_id**
 5. Do **not** share this session with Autobrr, browser, Prowlarr, etc. — MAM rotates `mam_id` and concurrent clients will invalidate each other
 
@@ -55,12 +56,76 @@ Also authorize your public IP for IRC under MAM security if `#announce` connecti
 
 ## First-run checklist
 
-1. Sign in with `AUTH_PASSWORD`
+1. Sign in as `admin` with `BOOTSTRAP_ADMIN_PASSWORD` (default `changeme`) — you will be prompted to change it if still on the default
 2. Paste `mam_id` → **Test MAM**
 3. Configure qBittorrent → **Test qBittorrent**
 4. Create at least one filter (or a catch-all)
-5. Enable IRC and/or add wishlist watches
+5. Start IRC from the Dashboard and/or add wishlist watches
 6. Optional: Discord webhook URL
+7. Optional: create a **viewer** user and/or scoped **API keys** for bots
+
+## Auth model
+
+| Actor | How they authenticate | Access |
+|---|---|---|
+| Web UI | Username + password → httpOnly cookie session | `admin` full control; `viewer` read-only |
+| Discord bot / monitor | `Authorization: Bearer mbb_…` or `X-API-Key` | Scopes assigned per key |
+
+Bootstrap: on first start with an empty `users` table, an admin is created from `BOOTSTRAP_ADMIN_PASSWORD` (or legacy `AUTH_PASSWORD`). Env passwords are not used for day-to-day login after that.
+
+## External API (`/api/v1`)
+
+Create keys under **API Keys** in the UI (admin). Raw key is shown once (`mbb_…`).
+
+### Scopes
+
+| Scope | Access |
+|---|---|
+| `status:read` | Status + public settings summary |
+| `filters:read` / `filters:write` | List / mutate filters |
+| `wishlist:read` / `wishlist:write` | List / mutate / run watches |
+| `history:read` | Recent snatches |
+| `events:read` | Recent events + SSE stream |
+| `irc:control` | Start / stop IRC |
+| `snatch:write` | Manual snatch |
+
+### Endpoints
+
+| Method | Path | Scope |
+|---|---|---|
+| GET | `/api/v1/health` | none |
+| GET | `/api/v1/status` | `status:read` |
+| GET | `/api/v1/settings/public` | `status:read` |
+| GET | `/api/v1/filters` | `filters:read` |
+| POST/PUT/DELETE | `/api/v1/filters…` | `filters:write` |
+| GET | `/api/v1/wishlist` | `wishlist:read` |
+| POST… | `/api/v1/wishlist…` | `wishlist:write` |
+| GET | `/api/v1/snatches` | `history:read` |
+| GET | `/api/v1/events` | `events:read` |
+| GET | `/api/v1/events/stream` | `events:read` |
+| POST | `/api/v1/irc/start` \| `/stop` | `irc:control` |
+| POST | `/api/v1/snatch` | `snatch:write` |
+
+Secrets (`mam_id`, passwords, webhooks) are not exposed on v1.
+
+### Examples
+
+```bash
+# Status
+curl -sS -H "Authorization: Bearer mbb_YOUR_KEY" \
+  http://127.0.0.1:7480/api/v1/status
+
+# Or X-API-Key
+curl -sS -H "X-API-Key: mbb_YOUR_KEY" \
+  http://127.0.0.1:7480/api/v1/events
+
+# SSE (prefer header; query allowed when headers are awkward)
+curl -N -H "Authorization: Bearer mbb_YOUR_KEY" \
+  http://127.0.0.1:7480/api/v1/events/stream
+# curl -N 'http://127.0.0.1:7480/api/v1/events/stream?api_key=mbb_YOUR_KEY'
+```
+
+UI routes remain under `/api/*` (same cookie / API-key middleware, role-gated).
 
 ## Architecture
 
@@ -70,7 +135,7 @@ Wishlist poll ─┼→ normalize → filters → dedup → MAM download → qBi
 Manual search ─┘
 ```
 
-Data lives in `DATA_DIR` (`./data/newbookbot.db` by default). Downloaded `.torrent` files land in `DOWNLOADS_DIR`.
+Data lives in `DATA_DIR` (`./data/mybookbrr.db` by default). Downloaded `.torrent` files land in `DOWNLOADS_DIR`.
 
 ## Scripts
 

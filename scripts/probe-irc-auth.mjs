@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, '../data/newbookbot.db');
+const dbPath = path.resolve(__dirname, '../data/mybookbrr.db');
 const db = new Database(dbPath, { readonly: true });
 const get = (k) => {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(k);
@@ -17,8 +17,8 @@ const get = (k) => {
 
 const host = get('irc_host') || 'irc.myanonamouse.net';
 const port = Number(get('irc_port') || 6697);
-const rawNick = get('irc_nick') || 'Newbookbot';
-const nick = rawNick.split('|')[0].replace(/[^a-zA-Z0-9_\-\[\]\{\}]/g, '').slice(0, 30) || 'Newbookbot';
+const rawNick = get('irc_nick') || 'MyBookBRR';
+const nick = rawNick.split('|')[0].replace(/[^a-zA-Z0-9_\-\[\]\{\}]/g, '').slice(0, 30) || 'MyBookBRR';
 const password = get('irc_nickserv_password').trim();
 const channel = get('irc_channel') || '#announce';
 
@@ -37,7 +37,7 @@ const lines = [];
 
 const socket = tls.connect({ host, port, servername: host, rejectUnauthorized: true }, () => {
   socket.write(`NICK ${nick}\r\n`);
-  socket.write(`USER ${nick.slice(0, 10)} 0 * :NewbookbotProbe\r\n`);
+  socket.write(`USER ${nick.slice(0, 10)} 0 * :MyBookBRRProbe\r\n`);
 });
 
 function redact(s) {

@@ -1,6 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-type Page = 'dashboard' | 'live' | 'filters' | 'wishlist' | 'search' | 'history' | 'settings';
+type Page =
+  | 'dashboard'
+  | 'live'
+  | 'filters'
+  | 'wishlist'
+  | 'search'
+  | 'history'
+  | 'settings'
+  | 'users'
+  | 'api-keys';
+
+type AuthUser = {
+  id: string;
+  username: string;
+  role: 'admin' | 'viewer';
+  enabled?: boolean;
+  mustChangePassword?: boolean;
+};
 
 async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers = new Headers(opts.headers || {});
@@ -24,7 +41,8 @@ async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function Login({ onDone }: { onDone: () => void }) {
+function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,8 +52,11 @@ function Login({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setError('');
     try {
-      await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) });
-      onDone();
+      const r = await api<{ ok: boolean; user: AuthUser }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+      onDone(r.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -47,19 +68,28 @@ function Login({ onDone }: { onDone: () => void }) {
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
         <h1>
-          newbook<span style={{ color: 'var(--accent)' }}>bot</span>
+          MyBook<span style={{ color: 'var(--accent)' }}>BRR</span>
         </h1>
         <p>MAM auto-snatch & wishlist downloader</p>
+        <div className="field">
+          <label>Username</label>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoFocus
+            autoComplete="username"
+          />
+        </div>
         <div className="field">
           <label>Password</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoFocus
+            autoComplete="current-password"
           />
         </div>
-        <button className="btn" disabled={busy || !password}>
+        <button className="btn" disabled={busy || !username || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
         {error && <div className="error">{error}</div>}
@@ -68,7 +98,296 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Dashboard() {
+function ChangePasswordGate({ user, onDone }: { user: AuthUser; onDone: (user: AuthUser) => void }) {
+  const [currentPassword, setCurrent] = useState('');
+  const [newPassword, setNew] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await api('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      onDone({ ...user, mustChangePassword: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to change password');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={submit}>
+        <h1>Change password</h1>
+        <p>Your account requires a new password before continuing.</p>
+        <div className="field">
+          <label>Current password</label>
+          <input type="password" value={currentPassword} onChange={(e) => setCurrent(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>New password (min 8)</label>
+          <input type="password" value={newPassword} onChange={(e) => setNew(e.target.value)} />
+        </div>
+        <button className="btn" disabled={busy || newPassword.length < 8}>
+          {busy ? 'Saving…' : 'Update password'}
+        </button>
+        {error && <div className="error">{error}</div>}
+      </form>
+    </div>
+  );
+}
+
+function UsersPage() {
+  const [users, setUsers] = useState<AuthUser[]>([]);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'admin' | 'viewer'>('viewer');
+  const [msg, setMsg] = useState('');
+  const [msgOk, setMsgOk] = useState(true);
+
+  const load = () => api<AuthUser[]>('/api/users').then(setUsers);
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function create() {
+    setMsg('');
+    try {
+      await api('/api/users', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, role }),
+      });
+      setUsername('');
+      setPassword('');
+      setRole('viewer');
+      setMsgOk(true);
+      setMsg('User created');
+      await load();
+    } catch (err) {
+      setMsgOk(false);
+      setMsg(err instanceof Error ? err.message : 'Create failed');
+    }
+  }
+
+  async function patch(id: string, body: Record<string, unknown>) {
+    try {
+      await api(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+      await load();
+    } catch (err) {
+      setMsgOk(false);
+      setMsg(err instanceof Error ? err.message : 'Update failed');
+    }
+  }
+
+  return (
+    <>
+      <h2 className="page-title">Users</h2>
+      <p className="page-sub">Admin and viewer accounts for the web UI</p>
+      <div className="grid two">
+        <div className="card">
+          <h3>Create user</h3>
+          <div className="field">
+            <label>Username</label>
+            <input value={username} onChange={(e) => setUsername(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Role</label>
+            <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'viewer')}>
+              <option value="viewer">viewer</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+          <button className="btn" onClick={() => void create()}>
+            Create
+          </button>
+          {msg && <div className={msgOk ? 'okmsg' : 'error'}>{msg}</div>}
+        </div>
+        <div className="card">
+          <h3>Accounts</h3>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.username}</td>
+                  <td>
+                    <select
+                      value={u.role}
+                      onChange={(e) => void patch(u.id, { role: e.target.value })}
+                    >
+                      <option value="viewer">viewer</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </td>
+                  <td>
+                    <span className={`badge ${u.enabled !== false ? 'ok' : 'warn'}`}>
+                      {u.enabled === false ? 'disabled' : 'enabled'}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      className="btn secondary"
+                      onClick={() => void patch(u.id, { enabled: u.enabled === false })}
+                    >
+                      {u.enabled === false ? 'Enable' : 'Disable'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+const SCOPE_OPTIONS = [
+  'status:read',
+  'filters:read',
+  'filters:write',
+  'wishlist:read',
+  'wishlist:write',
+  'history:read',
+  'events:read',
+  'irc:control',
+  'snatch:write',
+] as const;
+
+function ApiKeysPage() {
+  const [keys, setKeys] = useState<any[]>([]);
+  const [name, setName] = useState('');
+  const [scopes, setScopes] = useState<string[]>(['status:read', 'events:read', 'history:read']);
+  const [rawKey, setRawKey] = useState('');
+  const [msg, setMsg] = useState('');
+  const [msgOk, setMsgOk] = useState(true);
+
+  const load = () =>
+    api<{ keys: any[] }>('/api/api-keys').then((r) => setKeys(r.keys));
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function create() {
+    setMsg('');
+    setRawKey('');
+    try {
+      const r = await api<{ key: any; raw: string; warning: string }>('/api/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ name, scopes }),
+      });
+      setRawKey(r.raw);
+      setName('');
+      setMsgOk(true);
+      setMsg(r.warning);
+      await load();
+    } catch (err) {
+      setMsgOk(false);
+      setMsg(err instanceof Error ? err.message : 'Create failed');
+    }
+  }
+
+  return (
+    <>
+      <h2 className="page-title">API keys</h2>
+      <p className="page-sub">Scoped keys for Discord bots and home monitors (`/api/v1`)</p>
+      <div className="grid two">
+        <div className="card">
+          <h3>Create key</h3>
+          <div className="field">
+            <label>Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="home-monitor" />
+          </div>
+          <div className="field">
+            <label>Scopes</label>
+            <div className="check-grid">
+              {SCOPE_OPTIONS.map((s) => (
+                <label key={s}>
+                  <input
+                    type="checkbox"
+                    checked={scopes.includes(s)}
+                    onChange={(e) =>
+                      setScopes((prev) =>
+                        e.target.checked ? [...prev, s] : prev.filter((x) => x !== s)
+                      )
+                    }
+                  />
+                  {s}
+                </label>
+              ))}
+            </div>
+          </div>
+          <button className="btn" onClick={() => void create()} disabled={!name || !scopes.length}>
+            Create key
+          </button>
+          {rawKey && (
+            <div className="card" style={{ marginTop: '0.75rem' }}>
+              <p className="detail">Copy now — shown once:</p>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{rawKey}</pre>
+              <button className="btn secondary" onClick={() => void navigator.clipboard.writeText(rawKey)}>
+                Copy
+              </button>
+            </div>
+          )}
+          {msg && <div className={msgOk ? 'okmsg' : 'error'}>{msg}</div>}
+        </div>
+        <div className="card">
+          <h3>Active keys</h3>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Prefix</th>
+                <th>Scopes</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k.id}>
+                  <td>{k.name}</td>
+                  <td>
+                    <code>{k.keyPrefix}…</code>
+                  </td>
+                  <td className="detail">{(k.scopes || []).join(', ')}</td>
+                  <td>
+                    <button
+                      className="btn danger"
+                      onClick={() =>
+                        void api(`/api/api-keys/${k.id}`, { method: 'DELETE' }).then(load)
+                      }
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const [status, setStatus] = useState<any>(null);
   const [actionMsg, setActionMsg] = useState('');
   const [actionOk, setActionOk] = useState(true);
@@ -188,35 +507,37 @@ function Dashboard() {
           </pre>
         </div>
       )}
-      <div className="row" style={{ marginTop: '1rem' }}>
-        <button
-          className="btn secondary"
-          disabled={busy !== null || status.irc?.joined}
-          onClick={() => void runAction('irc-start', '/api/irc/start')}
-        >
-          {busy === 'irc-start' ? 'Starting…' : 'Start IRC'}
-        </button>
-        <button
-          className="btn secondary"
-          disabled={busy !== null}
-          onClick={() => void runAction('irc-stop', '/api/irc/stop')}
-        >
-          {busy === 'irc-stop' ? 'Stopping…' : 'Stop IRC'}
-        </button>
-        <button
-          className="btn secondary"
-          disabled={busy !== null}
-          onClick={() => void runAction('wishlist', '/api/wishlist/poll')}
-        >
-          {busy === 'wishlist' ? 'Polling…' : 'Poll wishlist now'}
-        </button>
-        {actionMsg && <div className={actionOk ? 'okmsg' : 'error'}>{actionMsg}</div>}
-      </div>
+      {isAdmin && (
+        <div className="row" style={{ marginTop: '1rem' }}>
+          <button
+            className="btn secondary"
+            disabled={busy !== null || status.irc?.joined}
+            onClick={() => void runAction('irc-start', '/api/irc/start')}
+          >
+            {busy === 'irc-start' ? 'Starting…' : 'Start IRC'}
+          </button>
+          <button
+            className="btn secondary"
+            disabled={busy !== null}
+            onClick={() => void runAction('irc-stop', '/api/irc/stop')}
+          >
+            {busy === 'irc-stop' ? 'Stopping…' : 'Stop IRC'}
+          </button>
+          <button
+            className="btn secondary"
+            disabled={busy !== null}
+            onClick={() => void runAction('wishlist', '/api/wishlist/poll')}
+          >
+            {busy === 'wishlist' ? 'Polling…' : 'Poll wishlist now'}
+          </button>
+          {actionMsg && <div className={actionOk ? 'okmsg' : 'error'}>{actionMsg}</div>}
+        </div>
+      )}
     </>
   );
 }
 
-function LiveFeed() {
+function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
   const [items, setItems] = useState<Array<{ type: string; payload: any; createdAt?: string }>>([]);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -320,13 +641,15 @@ function LiveFeed() {
                   >
                     {open ? 'Hide details' : 'Details'}
                   </button>
-                  <button
-                    className="btn"
-                    disabled={busyKey === key || !r.torrentId}
-                    onClick={() => void sendToQbit(r, key)}
-                  >
-                    {busyKey === key ? 'Sending…' : 'Send to qBittorrent'}
-                  </button>
+                  {isAdmin && (
+                    <button
+                      className="btn"
+                      disabled={busyKey === key || !r.torrentId}
+                      onClick={() => void sendToQbit(r, key)}
+                    >
+                      {busyKey === key ? 'Sending…' : 'Send to qBittorrent'}
+                    </button>
+                  )}
                   {r.torrentUrl ? (
                     <a className="btn secondary" href={r.torrentUrl} target="_blank" rel="noreferrer">
                       Open on MAM
@@ -501,7 +824,7 @@ function FormatCheckboxes({
   );
 }
 
-function FiltersPage() {
+function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
   const [filters, setFilters] = useState<any[]>([]);
   const [draft, setDraft] = useState<any>({ ...emptyFilter });
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -633,31 +956,36 @@ function FiltersPage() {
           <h3 style={{ color: 'var(--danger)' }}>Unsatisfied torrent limit</h3>
           <p className="detail">{unsatisfied.message}</p>
           {unsatisfied.at && <p className="detail">Detected at {unsatisfied.at}</p>}
-          <div className="row" style={{ marginTop: '0.6rem' }}>
-            <button className="btn" onClick={() => void clearUnsatisfied(true)}>
-              Clear & re-enable filters
-            </button>
-            <button className="btn secondary" onClick={() => void clearUnsatisfied(false)}>
-              Clear lockout only
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="row" style={{ marginTop: '0.6rem' }}>
+              <button className="btn" onClick={() => void clearUnsatisfied(true)}>
+                Clear & re-enable filters
+              </button>
+              <button className="btn secondary" onClick={() => void clearUnsatisfied(false)}>
+                Clear lockout only
+              </button>
+            </div>
+          )}
         </div>
       )}
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <label>
-          <input
-            type="checkbox"
-            checked={autoDisable}
-            onChange={(e) => void saveAutoDisable(e.target.checked)}
-          />{' '}
-          Auto-disable all enabled filters when MAM unsatisfied torrent limit is hit
-        </label>
-        <p className="detail">
-          Prevents repeated download failures / flood while you seed to clear the limit. Filters stay off until you
-          re-enable them (or use Clear &amp; re-enable).
-        </p>
-      </div>
+      {isAdmin && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <label>
+            <input
+              type="checkbox"
+              checked={autoDisable}
+              onChange={(e) => void saveAutoDisable(e.target.checked)}
+            />{' '}
+            Auto-disable all enabled filters when MAM unsatisfied torrent limit is hit
+          </label>
+          <p className="detail">
+            Prevents repeated download failures / flood while you seed to clear the limit. Filters stay off until you
+            re-enable them (or use Clear &amp; re-enable).
+          </p>
+        </div>
+      )}
       <div className="grid two">
+        {isAdmin && (
         <div className="card">
           <h3>{editingId ? 'Edit rule' : 'New rule'}</h3>
           <div className="field">
@@ -853,6 +1181,7 @@ function FiltersPage() {
           </div>
           {msg && <div className={msgOk ? 'okmsg' : 'error'}>{msg}</div>}
         </div>
+        )}
         <div className="card">
           <h3>Active rules</h3>
           <table className="table">
@@ -861,7 +1190,7 @@ function FiltersPage() {
                 <th>On</th>
                 <th>Name</th>
                 <th>Pri</th>
-                <th />
+                {isAdmin && <th />}
               </tr>
             </thead>
             <tbody>
@@ -872,7 +1201,9 @@ function FiltersPage() {
                       <input
                         type="checkbox"
                         checked={Boolean(f.enabled)}
+                        disabled={!isAdmin}
                         onChange={() => {
+                          if (!isAdmin) return;
                           void api(`/api/filters/${f.id}`, {
                             method: 'PUT',
                             body: JSON.stringify({ enabled: !f.enabled }),
@@ -899,42 +1230,44 @@ function FiltersPage() {
                     </div>
                   </td>
                   <td>{f.priority}</td>
-                  <td>
-                    <div className="row">
-                      <button
-                        className="btn secondary"
-                        onClick={() => {
-                          setEditingId(f.id);
-                          setDraft({
-                            ...f,
-                            authors: f.authors || [],
-                            series: f.series || [],
-                            mediaTypes: f.mediaTypes || ['eBook', 'Audiobook'],
-                            formats: normalizeFormats(f.formats),
-                          });
-                        }}
-                      >
-                        Edit
-                      </button>
-                      {f.discordWebhookUrl ? (
+                  {isAdmin && (
+                    <td>
+                      <div className="row">
                         <button
                           className="btn secondary"
-                          disabled={testingHook}
-                          onClick={() =>
-                            void testFilterDiscord({ filterId: f.id, filterName: f.name })
-                          }
+                          onClick={() => {
+                            setEditingId(f.id);
+                            setDraft({
+                              ...f,
+                              authors: f.authors || [],
+                              series: f.series || [],
+                              mediaTypes: f.mediaTypes || ['eBook', 'Audiobook'],
+                              formats: normalizeFormats(f.formats),
+                            });
+                          }}
                         >
-                          Test
+                          Edit
                         </button>
-                      ) : null}
-                      <button
-                        className="btn danger"
-                        onClick={() => api(`/api/filters/${f.id}`, { method: 'DELETE' }).then(load)}
-                      >
-                        Del
-                      </button>
-                    </div>
-                  </td>
+                        {f.discordWebhookUrl ? (
+                          <button
+                            className="btn secondary"
+                            disabled={testingHook}
+                            onClick={() =>
+                              void testFilterDiscord({ filterId: f.id, filterName: f.name })
+                            }
+                          >
+                            Test
+                          </button>
+                        ) : null}
+                        <button
+                          className="btn danger"
+                          onClick={() => api(`/api/filters/${f.id}`, { method: 'DELETE' }).then(load)}
+                        >
+                          Del
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -945,7 +1278,7 @@ function FiltersPage() {
   );
 }
 
-function WishlistPage() {
+function WishlistPage({ isAdmin }: { isAdmin: boolean }) {
   const [watches, setWatches] = useState<any[]>([]);
   const [draft, setDraft] = useState({
     name: '',
@@ -999,41 +1332,43 @@ function WishlistPage() {
       <h2 className="page-title">Wishlist</h2>
       <p className="page-sub">Periodic MAM search watches for authors, series, and titles</p>
       <div className="grid two">
-        <div className="card">
-          <h3>New watch</h3>
-          <div className="field">
-            <label>Name</label>
-            <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        {isAdmin && (
+          <div className="card">
+            <h3>New watch</h3>
+            <div className="field">
+              <label>Name</label>
+              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Query</label>
+              <input value={draft.query} onChange={(e) => setDraft({ ...draft, query: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Author</label>
+              <input value={draft.author} onChange={(e) => setDraft({ ...draft, author: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Series</label>
+              <input value={draft.series} onChange={(e) => setDraft({ ...draft, series: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Narrator</label>
+              <input value={draft.narrator} onChange={(e) => setDraft({ ...draft, narrator: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Interval (minutes)</label>
+              <input
+                type="number"
+                value={draft.intervalMinutes}
+                onChange={(e) => setDraft({ ...draft, intervalMinutes: Number(e.target.value) })}
+              />
+            </div>
+            <button className="btn" onClick={() => void save()}>
+              Save watch
+            </button>
+            {msg && <div className="okmsg">{msg}</div>}
           </div>
-          <div className="field">
-            <label>Query</label>
-            <input value={draft.query} onChange={(e) => setDraft({ ...draft, query: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Author</label>
-            <input value={draft.author} onChange={(e) => setDraft({ ...draft, author: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Series</label>
-            <input value={draft.series} onChange={(e) => setDraft({ ...draft, series: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Narrator</label>
-            <input value={draft.narrator} onChange={(e) => setDraft({ ...draft, narrator: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Interval (minutes)</label>
-            <input
-              type="number"
-              value={draft.intervalMinutes}
-              onChange={(e) => setDraft({ ...draft, intervalMinutes: Number(e.target.value) })}
-            />
-          </div>
-          <button className="btn" onClick={() => void save()}>
-            Save watch
-          </button>
-          {msg && <div className="okmsg">{msg}</div>}
-        </div>
+        )}
         <div className="card">
           <h3>Watches</h3>
           <table className="table">
@@ -1041,7 +1376,7 @@ function WishlistPage() {
               <tr>
                 <th>Name</th>
                 <th>Last run</th>
-                <th />
+                {isAdmin && <th />}
               </tr>
             </thead>
             <tbody>
@@ -1057,24 +1392,26 @@ function WishlistPage() {
                     <div>{w.lastRunAt || 'never'}</div>
                     <div className="detail">{w.lastResult}</div>
                   </td>
-                  <td>
-                    <div className="row">
-                      <button
-                        className="btn secondary"
-                        onClick={() =>
-                          api(`/api/wishlist/${w.id}/run`, { method: 'POST', body: '{}' }).then(load)
-                        }
-                      >
-                        Run
-                      </button>
-                      <button
-                        className="btn danger"
-                        onClick={() => api(`/api/wishlist/${w.id}`, { method: 'DELETE' }).then(load)}
-                      >
-                        Del
-                      </button>
-                    </div>
-                  </td>
+                  {isAdmin && (
+                    <td>
+                      <div className="row">
+                        <button
+                          className="btn secondary"
+                          onClick={() =>
+                            api(`/api/wishlist/${w.id}/run`, { method: 'POST', body: '{}' }).then(load)
+                          }
+                        >
+                          Run
+                        </button>
+                        <button
+                          className="btn danger"
+                          onClick={() => api(`/api/wishlist/${w.id}`, { method: 'DELETE' }).then(load)}
+                        >
+                          Del
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -1085,7 +1422,7 @@ function WishlistPage() {
   );
 }
 
-function SearchPage() {
+function SearchPage({ isAdmin }: { isAdmin: boolean }) {
   const [text, setText] = useState('');
   const [mainCat, setMainCat] = useState('');
   const [results, setResults] = useState<any[]>([]);
@@ -1177,9 +1514,11 @@ function SearchPage() {
                 </td>
                 <td>{r.sizeStr}</td>
                 <td>
-                  <button className="btn" onClick={() => void snatch(r)}>
-                    Snatch
-                  </button>
+                  {isAdmin && (
+                    <button className="btn" onClick={() => void snatch(r)}>
+                      Snatch
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -1414,7 +1753,7 @@ function SettingsPage() {
             />
           </div>
           <p className="detail">
-            Create a dedicated session under MAM → Preferences → Security. Use a session only for Newbookbot —
+            Create a dedicated session under MAM → Preferences → Security. Use a session only for MyBookBRR —
             MAM rotates mam_id and sharing breaks other apps.
           </p>
           <button className="btn secondary" disabled={testingMam} onClick={() => void testMam()}>
@@ -1463,7 +1802,7 @@ function SettingsPage() {
             />
           </div>
           <p className="detail">
-            Use the same nick/password registered on MAM IRC. After connect, Newbookbot sends{' '}
+            Use the same nick/password registered on MAM IRC. After connect, MyBookBRR sends{' '}
             <code>NickServ IDENTIFY</code> before joining #announce.
           </p>
         </div>
@@ -1636,37 +1975,45 @@ function SettingsPage() {
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [page, setPage] = useState<Page>('dashboard');
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
-    void api<{ authenticated: boolean }>('/api/auth/me')
-      .then((r) => setAuthed(r.authenticated))
-      .catch(() => setAuthed(false));
+    void api<{ authenticated: boolean; user: AuthUser | null }>('/api/auth/me')
+      .then((r) => setUser(r.authenticated && r.user ? r.user : null))
+      .catch(() => setUser(null));
   }, []);
 
-  const nav = useMemo(
-    () =>
-      [
-        ['dashboard', 'Dashboard'],
-        ['live', 'Live'],
-        ['filters', 'Filters'],
-        ['wishlist', 'Wishlist'],
-        ['search', 'Search'],
-        ['history', 'History'],
-        ['settings', 'Settings'],
-      ] as Array<[Page, string]>,
-    []
-  );
+  const nav = useMemo(() => {
+    const items: Array<[Page, string]> = [
+      ['dashboard', 'Dashboard'],
+      ['live', 'Live'],
+      ['filters', 'Filters'],
+      ['wishlist', 'Wishlist'],
+      ['search', 'Search'],
+      ['history', 'History'],
+    ];
+    if (isAdmin) {
+      items.push(['settings', 'Settings'], ['users', 'Users'], ['api-keys', 'API Keys']);
+    }
+    return items;
+  }, [isAdmin]);
 
-  if (authed === null) return null;
-  if (!authed) return <Login onDone={() => setAuthed(true)} />;
+  if (user === undefined) return null;
+  if (!user) return <Login onDone={(u) => setUser(u)} />;
+  if (user.mustChangePassword) {
+    return <ChangePasswordGate user={user} onDone={(u) => setUser(u)} />;
+  }
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          newbook<span>bot</span>
+          MyBook<span>BRR</span>
+        </div>
+        <div className="detail" style={{ padding: '0 0.75rem 0.5rem', color: 'var(--muted)' }}>
+          {user.username} · {user.role}
         </div>
         <nav className="nav">
           {nav.map(([id, label]) => (
@@ -1678,20 +2025,22 @@ export default function App() {
         <button
           className="btn secondary"
           onClick={() =>
-            api('/api/auth/logout', { method: 'POST', body: '{}' }).then(() => setAuthed(false))
+            api('/api/auth/logout', { method: 'POST', body: '{}' }).then(() => setUser(null))
           }
         >
           Sign out
         </button>
       </aside>
       <main className="main">
-        {page === 'dashboard' && <Dashboard />}
-        {page === 'live' && <LiveFeed />}
-        {page === 'filters' && <FiltersPage />}
-        {page === 'wishlist' && <WishlistPage />}
-        {page === 'search' && <SearchPage />}
+        {page === 'dashboard' && <Dashboard isAdmin={isAdmin} />}
+        {page === 'live' && <LiveFeed isAdmin={isAdmin} />}
+        {page === 'filters' && <FiltersPage isAdmin={isAdmin} />}
+        {page === 'wishlist' && <WishlistPage isAdmin={isAdmin} />}
+        {page === 'search' && <SearchPage isAdmin={isAdmin} />}
         {page === 'history' && <HistoryPage />}
-        {page === 'settings' && <SettingsPage />}
+        {page === 'settings' && isAdmin && <SettingsPage />}
+        {page === 'users' && isAdmin && <UsersPage />}
+        {page === 'api-keys' && isAdmin && <ApiKeysPage />}
       </main>
     </div>
   );

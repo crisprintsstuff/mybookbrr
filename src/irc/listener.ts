@@ -48,7 +48,7 @@ export class IrcListener extends EventEmitter {
     joined: false,
     host: 'irc.myanonamouse.net',
     port: 6697,
-    nick: 'Newbookbot',
+    nick: 'MyBookBRR',
     channel: '#announce',
     lastError: null,
     lastLineAt: null,
@@ -86,7 +86,7 @@ export class IrcListener extends EventEmitter {
     this.clearTimers();
     if (this.socket && !this.socket.destroyed) {
       try {
-        this.socket.write('QUIT :Newbookbot stopping\r\n');
+        this.socket.write('QUIT :MyBookBRR stopping\r\n');
       } catch {
         /* ignore */
       }
@@ -228,9 +228,9 @@ export class IrcListener extends EventEmitter {
     const port = Number(getSetting('irc_port') || 6697);
     // MAM IRC nicks commonly use "account|client" (pipe is intentional).
     const nick =
-      (getSetting('irc_nick') || 'Newbookbot')
+      (getSetting('irc_nick') || 'MyBookBRR')
         .replace(/[^a-zA-Z0-9_\-\[\]\{\}\|]/g, '')
-        .slice(0, 30) || 'Newbookbot';
+        .slice(0, 30) || 'MyBookBRR';
     const channel = getSetting('irc_channel') || '#announce';
     const useTls = port === 6697 || port === 7000 || getSetting('irc_tls') === 'true';
     const hasPass = Boolean(this.nickservPassword());
@@ -259,11 +259,11 @@ export class IrcListener extends EventEmitter {
       setSetting('irc_status', 'connected');
       this.setPhase('connected');
       // USER must be a simple ident; NICK keeps the full MAM "account|client" form.
-      const userIdent = (nick.split('|')[0] || nick).replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 10) || 'newbookbot';
+      const userIdent = (nick.split('|')[0] || nick).replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 10) || 'mybookbrr';
       this.send(`NICK ${nick}`);
-      this.send(`USER ${userIdent} 0 * :Newbookbot`);
+      this.send(`USER ${userIdent} 0 * :MyBookBRR`);
       this.pingTimer = setInterval(() => {
-        this.send(`PING :newbookbot_${Date.now()}`, true);
+        this.send(`PING :mybookbrr_${Date.now()}`, true);
       }, 60000);
     };
 
@@ -394,7 +394,7 @@ export class IrcListener extends EventEmitter {
 
     // Nick in use
     if (line.includes(' 433 ')) {
-      const desired = this.status.nick || 'Newbookbot';
+      const desired = this.status.nick || 'MyBookBRR';
       if (passkey) {
         this.note(`[SYSTEM] Nick in use — GHOST ${desired}`);
         this.send(`PRIVMSG NickServ :GHOST ${desired} ${passkey}`);

@@ -1,7 +1,7 @@
 services:
-  newbookbot:
+  mybookbrr:
     build: .
-    container_name: newbookbot
+    container_name: mybookbrr
     restart: unless-stopped
     ports:
       - "7480:7480"
@@ -10,15 +10,18 @@ services:
       - HOST=0.0.0.0
       - DATA_DIR=/app/data
       - DOWNLOADS_DIR=/app/downloads
+      - BOOTSTRAP_ADMIN_USERNAME=${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-changeme}
-      - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-long-random-string}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - SESSION_TTL_DAYS=${SESSION_TTL_DAYS:-7}
     volumes:
-      - nbb_data:/app/data
-      - nbb_downloads:/app/downloads
+      - mbb_data:/app/data
+      - mbb_downloads:/app/downloads
     # If qBittorrent runs on the host (Linux), use host.docker.internal or host network.
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
 volumes:
-  nbb_data:
-  nbb_downloads:
+  mbb_data:
+  mbb_downloads:

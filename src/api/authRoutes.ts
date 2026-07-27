@@ -1,0 +1,229 @@
+import type { FastifyInstance } from 'fastify';
+import {
+  checkLoginRateLimit,
+  clearSessionCookie,
+  createUserSession,
+  destroySession,
+  hashPassword,
+  noteLoginAttempt,
+  readSessionCookie,
+  requireRole,
+  requireUser,
+  setSessionCookie,
+  verifyPassword,
+} from '../auth/index.js';
+import {
+  createUser,
+  getUserById,
+  getUserByUsername,
+  listUsers,
+  revokeUserSessions,
+  updateUser,
+} from '../db/authRepos.js';
+import {
+  createKeyedApiKey,
+  listActiveApiKeys,
+  normalizeScopes,
+  revokeKeyedApiKey,
+} from '../auth/apiKeys.js';
+import { ALL_SCOPES } from '../auth/types.js';
+import type { UserRole } from '../auth/types.js';
+
+function clientIp(req: { ip?: string; headers: Record<string, unknown> }): string {
+  const xf = req.headers['x-forwarded-for'];
+  if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
+  return req.ip || 'unknown';
+}
+
+export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/api/auth/login', async (req, reply) => {
+    const ip = clientIp(req);
+    const limit = checkLoginRateLimit(ip);
+    if (!limit.ok) {
+      reply.header('Retry-After', String(limit.retryAfterSec || 60));
+      return reply.code(429).send({ error: 'Too many login attempts. Try again shortly.' });
+    }
+
+    const body = (req.body || {}) as { username?: string; password?: string };
+    const username = (body.username || '').trim();
+    const password = body.password || '';
+    if (!username || !password) {
+      noteLoginAttempt(ip);
+      return reply.code(401).send({ error: 'Invalid username or password' });
+    }
+
+    const row = getUserByUsername(username);
+    const ok = row && row.enabled ? await verifyPassword(password, row.passwordHash) : false;
+    if (!ok || !row) {
+      noteLoginAttempt(ip);
+      return reply.code(401).send({ error: 'Invalid username or password' });
+    }
+
+    const { token, expiresAt } = createUserSession(row, {
+      ip,
+      userAgent: String(req.headers['user-agent'] || ''),
+    });
+    setSessionCookie(reply, token, expiresAt);
+    return {
+      ok: true,
+      user: {
+        id: row.id,
+        username: row.username,
+        role: row.role,
+        mustChangePassword: row.mustChangePassword,
+      },
+    };
+  });
+
+  app.post('/api/auth/logout', async (req, reply) => {
+    const token = readSessionCookie(req.cookies as Record<string, string> | undefined);
+    destroySession(token);
+    clearSessionCookie(reply);
+    return { ok: true };
+  });
+
+  app.get('/api/auth/me', async (req) => {
+    if (!req.auth?.user) return { authenticated: false, user: null };
+    return {
+      authenticated: true,
+      user: {
+        id: req.auth.user.id,
+        username: req.auth.user.username,
+        role: req.auth.user.role,
+        mustChangePassword: req.auth.user.mustChangePassword,
+      },
+      authType: req.auth.authType,
+    };
+  });
+
+  app.post('/api/auth/change-password', async (req, reply) => {
+    if (!requireUser(req, reply)) return;
+    if (req.auth!.authType !== 'session') {
+      return reply.code(400).send({ error: 'Change password requires a browser session' });
+    }
+    const body = (req.body || {}) as { currentPassword?: string; newPassword?: string };
+    if (!body.currentPassword || !body.newPassword || body.newPassword.length < 8) {
+      return reply.code(400).send({ error: 'New password must be at least 8 characters' });
+    }
+    const row = getUserByUsername(req.auth!.user.username);
+    if (!row || !(await verifyPassword(body.currentPassword, row.passwordHash))) {
+      return reply.code(401).send({ error: 'Current password is incorrect' });
+    }
+    const hash = await hashPassword(body.newPassword);
+    updateUser(row.id, { passwordHash: hash, mustChangePassword: false });
+    revokeUserSessions(row.id);
+    const { token, expiresAt } = createUserSession(
+      { ...row, mustChangePassword: false },
+      { ip: clientIp(req), userAgent: String(req.headers['user-agent'] || '') }
+    );
+    setSessionCookie(reply, token, expiresAt);
+    return { ok: true };
+  });
+
+  // ---- Users (admin) ----
+  app.get('/api/users', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    return listUsers();
+  });
+
+  app.post('/api/users', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const body = (req.body || {}) as {
+      username?: string;
+      password?: string;
+      role?: UserRole;
+    };
+    const username = (body.username || '').trim();
+    const password = body.password || '';
+    const role: UserRole = body.role === 'admin' ? 'admin' : 'viewer';
+    if (!username || username.length < 2) {
+      return reply.code(400).send({ error: 'Username required (min 2 chars)' });
+    }
+    if (password.length < 8) {
+      return reply.code(400).send({ error: 'Password must be at least 8 characters' });
+    }
+    if (getUserByUsername(username)) {
+      return reply.code(409).send({ error: 'Username already exists' });
+    }
+    const hash = await hashPassword(password);
+    const user = createUser({ username, passwordHash: hash, role, mustChangePassword: false });
+    return user;
+  });
+
+  app.put('/api/users/:id', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const { id } = req.params as { id: string };
+    const body = (req.body || {}) as {
+      role?: UserRole;
+      enabled?: boolean;
+      password?: string;
+      mustChangePassword?: boolean;
+    };
+    const existing = getUserById(id);
+    if (!existing) return reply.code(404).send({ error: 'User not found' });
+
+    // Prevent locking yourself out
+    if (id === req.auth!.user.id && body.enabled === false) {
+      return reply.code(400).send({ error: 'Cannot disable your own account' });
+    }
+    if (id === req.auth!.user.id && body.role === 'viewer') {
+      return reply.code(400).send({ error: 'Cannot demote your own account' });
+    }
+
+    let passwordHash: string | undefined;
+    if (body.password) {
+      if (body.password.length < 8) {
+        return reply.code(400).send({ error: 'Password must be at least 8 characters' });
+      }
+      passwordHash = await hashPassword(body.password);
+    }
+
+    const updated = updateUser(id, {
+      role: body.role,
+      enabled: body.enabled,
+      passwordHash,
+      mustChangePassword: body.mustChangePassword,
+    });
+    if (passwordHash) revokeUserSessions(id);
+    return updated;
+  });
+
+  // ---- API keys (admin) ----
+  app.get('/api/api-keys', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    return {
+      keys: listActiveApiKeys(),
+      scopes: ALL_SCOPES,
+    };
+  });
+
+  app.post('/api/api-keys', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const body = (req.body || {}) as {
+      name?: string;
+      scopes?: string[];
+      expiresAt?: string | null;
+    };
+    const name = (body.name || '').trim();
+    if (!name) return reply.code(400).send({ error: 'Name required' });
+    const scopes = normalizeScopes(body.scopes || []);
+    if (!scopes.length) {
+      return reply.code(400).send({ error: 'At least one scope required' });
+    }
+    const { key, raw } = createKeyedApiKey({
+      userId: req.auth!.user.id,
+      name,
+      scopes,
+      expiresAt: body.expiresAt || null,
+    });
+    return { key, raw, warning: 'Copy this API key now. It will not be shown again.' };
+  });
+
+  app.delete('/api/api-keys/:id', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const { id } = req.params as { id: string };
+    const ok = revokeKeyedApiKey(id);
+    if (!ok) return reply.code(404).send({ error: 'API key not found' });
+    return { ok: true };
+  });
+}

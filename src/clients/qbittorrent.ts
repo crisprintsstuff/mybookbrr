@@ -82,7 +82,7 @@ export async function addTorrentFile(
   const config = cfg || getQbitConfig();
   const sid = await login(config);
 
-  const boundary = `----Newbookbot${Date.now()}`;
+  const boundary = `----MyBookBRR${Date.now()}`;
   const category = opts.category || config.category || '';
   const savePath = opts.savePath || config.savePath || '';
 

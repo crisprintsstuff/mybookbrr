@@ -8,6 +8,7 @@ import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { initDb } from './db/index.js';
 import { registerRoutes } from './api/routes.js';
+import { bootstrapAdminIfNeeded } from './auth/bootstrap.js';
 import { ircListener } from './irc/listener.js';
 import { startWishlistPoller } from './wishlist/poller.js';
 import { eventBus, processRelease } from './snatch/orchestrator.js';
@@ -18,6 +19,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 async function main() {
   initDb();
+  await bootstrapAdminIfNeeded();
 
   const app = Fastify({ logger: true });
   await app.register(cors, { origin: true, credentials: true });
@@ -49,7 +51,7 @@ async function main() {
   startWishlistPoller();
 
   await app.listen({ port: PORT, host: HOST });
-  console.log(`[Newbookbot] listening on http://${HOST}:${PORT}`);
+  console.log(`[MyBookBRR] listening on http://${HOST}:${PORT}`);
 }
 
 main().catch((err) => {
