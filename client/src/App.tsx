@@ -46,6 +46,28 @@ function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [discordEnabled, setDiscordEnabled] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const discordError = params.get('discord_error');
+    if (discordError) {
+      const messages: Record<string, string> = {
+        denied: 'Discord authorization was cancelled.',
+        missing_code: 'Discord login incomplete. Try again.',
+        invalid_state: 'Discord login expired. Try again.',
+        exchange_failed: 'Discord token exchange failed.',
+        not_allowed: 'Your Discord account is not allowlisted.',
+        disabled: 'Your account is disabled.',
+        not_configured: 'Discord login is not configured.',
+      };
+      setError(messages[discordError] || `Discord login failed (${discordError})`);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    void api<{ discord: boolean }>('/api/auth/providers')
+      .then((r) => setDiscordEnabled(Boolean(r.discord)))
+      .catch(() => setDiscordEnabled(false));
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -71,12 +93,22 @@ function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
           MyBook<span style={{ color: 'var(--accent)' }}>BRR</span>
         </h1>
         <p>MAM auto-snatch & wishlist downloader</p>
+        {discordEnabled && (
+          <>
+            <a className="btn btn-discord" href="/api/auth/discord">
+              Continue with Discord
+            </a>
+            <div className="login-divider">
+              <span>or</span>
+            </div>
+          </>
+        )}
         <div className="field">
           <label>Username</label>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            autoFocus
+            autoFocus={!discordEnabled}
             autoComplete="username"
           />
         </div>

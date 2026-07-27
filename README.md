@@ -69,13 +69,25 @@ Also authorize your public IP for IRC under MAM security if `#announce` connecti
 
 | Actor | How they authenticate | Access |
 |---|---|---|
-| Web UI | Username + password → httpOnly cookie session | `admin` full control; `viewer` read-only |
+| Web UI | Username + password **or** Discord OAuth → httpOnly `mbb_session` cookie | `admin` full control; `viewer` read-only |
 | Discord bot / monitor | `Authorization: Bearer mbb_…` or `X-API-Key` | Scopes assigned per key |
 
 Bootstrap: on first start with an empty `users` table, an admin is created from `BOOTSTRAP_ADMIN_PASSWORD` (or legacy `AUTH_PASSWORD`). Env passwords are not used for day-to-day login after that.
 
-## Discord bot
+### Discord OAuth (Web UI)
 
+Uses the **same Discord application** as the OmegaBot portal (`identify` scope). Each hostname needs its own redirect URI.
+
+1. In the [Discord Developer Portal](https://discord.com/developers/applications) → your app → **OAuth2** → **Redirects**, add:
+   - `https://mybookbrr.boznetwork.com/api/auth/discord/callback`
+   - (portal already has `https://portal.boznetwork.com/callback`)
+2. Set env (see `.env.example`): `DISCORD_REDIRECT_URI`, and either set `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_ALLOWED_USER_IDS` **or** leave them unset to reuse `dashboard/auth_config.json`.
+3. Optional: `DISCORD_LINK_USERNAME=admin` so the first allowlisted Discord login links to your existing admin instead of creating a second user.
+4. Behind HTTPS (Cloudflare): `COOKIE_SECURE=true` and `TRUST_PROXY=true`, then restart the service.
+
+Allowlist is Discord **user snowflake IDs** (same list as the portal). Password login and API keys remain available.
+
+## Discord bot
 The Discord control bot lives in [`discord-bot/`](discord-bot/) in this monorepo (slash commands, control panel, portal heartbeat). See [discord-bot/README.md](discord-bot/README.md) for setup.
 
 On this host it is also symlinked to `/home/cris/discordbots/mybookbrr` for the OmegaBot portal.

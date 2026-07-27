@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'viewer',
   enabled INTEGER NOT NULL DEFAULT 1,
   must_change_password INTEGER NOT NULL DEFAULT 0,
+  discord_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_login_at TEXT
@@ -172,6 +173,15 @@ export function initDb(dbPath?: string): Db {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+
+  // Migrations for existing DBs
+  const userCols = db.prepare(`PRAGMA table_info(users)`).all() as Array<{ name: string }>;
+  if (userCols.length && !userCols.some((c) => c.name === 'discord_id')) {
+    db.exec(`ALTER TABLE users ADD COLUMN discord_id TEXT`);
+  }
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id) WHERE discord_id IS NOT NULL`
+  );
 
   // Seed defaults
   const defaults: Record<string, string> = {

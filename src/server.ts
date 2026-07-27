@@ -21,7 +21,9 @@ async function main() {
   initDb();
   await bootstrapAdminIfNeeded();
 
-  const app = Fastify({ logger: true });
+  const trustProxy =
+    process.env.TRUST_PROXY === 'true' || process.env.COOKIE_SECURE === 'true';
+  const app = Fastify({ logger: true, trustProxy });
   await app.register(cors, { origin: true, credentials: true });
   await app.register(cookie);
   await registerRoutes(app);

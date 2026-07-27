@@ -29,6 +29,7 @@ export interface User {
   role: UserRole;
   enabled: boolean;
   mustChangePassword: boolean;
+  discordId: string | null;
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;

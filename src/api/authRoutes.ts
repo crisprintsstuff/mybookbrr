@@ -13,9 +13,22 @@ import {
   verifyPassword,
 } from '../auth/index.js';
 import {
+  buildDiscordAuthorizeUrl,
+  clearOAuthStateCookie,
+  createOAuthState,
+  exchangeDiscordCode,
+  getDiscordOAuthConfig,
+  isDiscordOAuthConfigured,
+  readOAuthStateCookie,
+  setOAuthStateCookie,
+} from '../auth/discord.js';
+import {
   createUser,
+  ensureUniqueUsername,
+  getUserByDiscordId,
   getUserById,
   getUserByUsername,
+  linkDiscordId,
   listUsers,
   revokeUserSessions,
   updateUser,
@@ -29,13 +42,96 @@ import {
 import { ALL_SCOPES } from '../auth/types.js';
 import type { UserRole } from '../auth/types.js';
 
+const DISCORD_PASSWORD_SENTINEL = '!discord-oauth';
+
 function clientIp(req: { ip?: string; headers: Record<string, unknown> }): string {
   const xf = req.headers['x-forwarded-for'];
   if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
   return req.ip || 'unknown';
 }
 
+function redirectLoginError(reply: import('fastify').FastifyReply, code: string) {
+  clearOAuthStateCookie(reply);
+  return reply.redirect(`/?discord_error=${encodeURIComponent(code)}`);
+}
+
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/api/auth/providers', async () => {
+    return { discord: isDiscordOAuthConfigured() };
+  });
+
+  app.get('/api/auth/discord', async (req, reply) => {
+    if (!isDiscordOAuthConfigured()) {
+      return reply.code(503).send({ error: 'Discord OAuth is not configured' });
+    }
+    const state = createOAuthState();
+    setOAuthStateCookie(reply, state);
+    return reply.redirect(buildDiscordAuthorizeUrl(state));
+  });
+
+  app.get('/api/auth/discord/callback', async (req, reply) => {
+    if (!isDiscordOAuthConfigured()) {
+      return redirectLoginError(reply, 'not_configured');
+    }
+    const q = req.query as { code?: string; state?: string; error?: string };
+    if (q.error) return redirectLoginError(reply, 'denied');
+    if (!q.code || !q.state) return redirectLoginError(reply, 'missing_code');
+
+    const expected = readOAuthStateCookie(req.cookies as Record<string, string> | undefined);
+    clearOAuthStateCookie(reply);
+    if (!expected || expected !== q.state) {
+      return redirectLoginError(reply, 'invalid_state');
+    }
+
+    const cfg = getDiscordOAuthConfig();
+    let discordUser: { id: string; username: string; globalName: string };
+    try {
+      discordUser = await exchangeDiscordCode(q.code);
+    } catch (err) {
+      req.log.error({ err }, 'Discord OAuth token exchange failed');
+      return redirectLoginError(reply, 'exchange_failed');
+    }
+
+    if (!cfg.allowedUserIds.includes(discordUser.id)) {
+      req.log.warn(
+        { discordId: discordUser.id, username: discordUser.username },
+        'Discord login denied — user not allowlisted'
+      );
+      return redirectLoginError(reply, 'not_allowed');
+    }
+
+    let user = getUserByDiscordId(discordUser.id);
+    if (!user) {
+      const linkUsername = (process.env.DISCORD_LINK_USERNAME || '').trim();
+      if (linkUsername) {
+        const existing = getUserByUsername(linkUsername);
+        if (existing && !existing.discordId) {
+          user = linkDiscordId(existing.id, discordUser.id);
+        }
+      }
+    }
+    if (!user) {
+      const username = ensureUniqueUsername(discordUser.username);
+      user = createUser({
+        username,
+        passwordHash: DISCORD_PASSWORD_SENTINEL,
+        role: cfg.defaultRole,
+        mustChangePassword: false,
+        discordId: discordUser.id,
+      });
+    }
+    if (!user.enabled) {
+      return redirectLoginError(reply, 'disabled');
+    }
+
+    const { token, expiresAt } = createUserSession(user, {
+      ip: clientIp(req),
+      userAgent: String(req.headers['user-agent'] || ''),
+    });
+    setSessionCookie(reply, token, expiresAt);
+    return reply.redirect('/');
+  });
+
   app.post('/api/auth/login', async (req, reply) => {
     const ip = clientIp(req);
     const limit = checkLoginRateLimit(ip);
@@ -91,6 +187,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         username: req.auth.user.username,
         role: req.auth.user.role,
         mustChangePassword: req.auth.user.mustChangePassword,
+        discordId: req.auth.user.discordId,
       },
       authType: req.auth.authType,
     };

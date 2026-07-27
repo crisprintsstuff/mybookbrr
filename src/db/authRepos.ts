@@ -9,6 +9,7 @@ function rowToUser(r: Record<string, unknown>): User {
     role: (r.role === 'admin' ? 'admin' : 'viewer') as UserRole,
     enabled: Boolean(r.enabled),
     mustChangePassword: Boolean(r.must_change_password),
+    discordId: r.discord_id ? String(r.discord_id) : null,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
     lastLoginAt: r.last_login_at ? String(r.last_login_at) : null,
@@ -42,20 +43,59 @@ export function getUserByUsername(username: string): (User & { passwordHash: str
   return { ...rowToUser(row), passwordHash: String(row.password_hash) };
 }
 
+export function getUserByDiscordId(discordId: string): User | null {
+  const row = getDb()
+    .prepare('SELECT * FROM users WHERE discord_id = ?')
+    .get(discordId) as Record<string, unknown> | undefined;
+  return row ? rowToUser(row) : null;
+}
+
 export function createUser(input: {
   username: string;
   passwordHash: string;
   role: UserRole;
   mustChangePassword?: boolean;
+  discordId?: string | null;
 }): User {
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO users (id, username, password_hash, role, enabled, must_change_password)
-       VALUES (?, ?, ?, ?, 1, ?)`
+      `INSERT INTO users (id, username, password_hash, role, enabled, must_change_password, discord_id)
+       VALUES (?, ?, ?, ?, 1, ?, ?)`
     )
-    .run(id, input.username.trim(), input.passwordHash, input.role, input.mustChangePassword ? 1 : 0);
+    .run(
+      id,
+      input.username.trim(),
+      input.passwordHash,
+      input.role,
+      input.mustChangePassword ? 1 : 0,
+      input.discordId || null
+    );
   return getUserById(id)!;
+}
+
+export function linkDiscordId(userId: string, discordId: string): User | null {
+  getDb()
+    .prepare(
+      `UPDATE users SET discord_id = ?, updated_at = datetime('now') WHERE id = ?`
+    )
+    .run(discordId, userId);
+  return getUserById(userId);
+}
+
+export function ensureUniqueUsername(base: string): string {
+  const cleaned = base.replace(/[^a-zA-Z0-9_\-.]/g, '').slice(0, 24) || 'discord';
+  let candidate = cleaned;
+  let i = 1;
+  while (getUserByUsername(candidate)) {
+    candidate = `${cleaned}${i}`.slice(0, 32);
+    i += 1;
+    if (i > 9999) {
+      candidate = `discord_${randomUUID().slice(0, 8)}`;
+      break;
+    }
+  }
+  return candidate;
 }
 
 export function updateUser(
@@ -224,7 +264,7 @@ export function findApiKeyByHash(keyHash: string): (ApiKeyRow & { user: User }) 
   const row = getDb()
     .prepare(
       `SELECT k.*, u.id AS uid, u.username, u.role, u.enabled AS uenabled,
-              u.must_change_password, u.created_at AS ucreated, u.updated_at AS uupdated, u.last_login_at
+              u.must_change_password, u.discord_id, u.created_at AS ucreated, u.updated_at AS uupdated, u.last_login_at
        FROM api_keys k
        JOIN users u ON u.id = k.user_id
        WHERE k.key_hash = ?
@@ -243,6 +283,7 @@ export function findApiKeyByHash(keyHash: string): (ApiKeyRow & { user: User }) 
       role: (row.role === 'admin' ? 'admin' : 'viewer') as UserRole,
       enabled: Boolean(row.uenabled),
       mustChangePassword: Boolean(row.must_change_password),
+      discordId: row.discord_id ? String(row.discord_id) : null,
       createdAt: String(row.ucreated),
       updatedAt: String(row.uupdated),
       lastLoginAt: row.last_login_at ? String(row.last_login_at) : null,
