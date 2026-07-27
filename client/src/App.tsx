@@ -89,14 +89,17 @@ function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
+        <div className="brand-logo-large" aria-hidden>
+          <i className="fa-solid fa-book-open" />
+        </div>
         <h1>
-          MyBook<span style={{ color: 'var(--accent)' }}>BRR</span>
+          MyBook<span>BRR</span>
         </h1>
         <p>MAM auto-snatch & wishlist downloader</p>
         {discordEnabled && (
           <>
             <a className="btn btn-discord" href="/api/auth/discord">
-              Continue with Discord
+              <i className="fa-brands fa-discord" /> Continue with Discord
             </a>
             <div className="login-divider">
               <span>or</span>
@@ -156,6 +159,9 @@ function ChangePasswordGate({ user, onDone }: { user: AuthUser; onDone: (user: A
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
+        <div className="brand-logo-large" aria-hidden>
+          <i className="fa-solid fa-key" />
+        </div>
         <h1>Change password</h1>
         <p>Your account requires a new password before continuing.</p>
         <div className="field">
@@ -219,11 +225,9 @@ function UsersPage() {
 
   return (
     <>
-      <h2 className="page-title">Users</h2>
-      <p className="page-sub">Admin and viewer accounts for the web UI</p>
       <div className="grid two">
         <div className="card">
-          <h3>Create user</h3>
+          <h3><i className="fa-solid fa-user-plus" /> Create user</h3>
           <div className="field">
             <label>Username</label>
             <input value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -245,7 +249,7 @@ function UsersPage() {
           {msg && <div className={msgOk ? 'okmsg' : 'error'}>{msg}</div>}
         </div>
         <div className="card">
-          <h3>Accounts</h3>
+          <h3><i className="fa-solid fa-users" /> Accounts</h3>
           <table className="table">
             <thead>
               <tr>
@@ -338,11 +342,9 @@ function ApiKeysPage() {
 
   return (
     <>
-      <h2 className="page-title">API keys</h2>
-      <p className="page-sub">Scoped keys for Discord bots and home monitors (`/api/v1`)</p>
       <div className="grid two">
         <div className="card">
-          <h3>Create key</h3>
+          <h3><i className="fa-solid fa-key" /> Create key</h3>
           <div className="field">
             <label>Name</label>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="home-monitor" />
@@ -381,7 +383,7 @@ function ApiKeysPage() {
           {msg && <div className={msgOk ? 'okmsg' : 'error'}>{msg}</div>}
         </div>
         <div className="card">
-          <h3>Active keys</h3>
+          <h3><i className="fa-solid fa-shield-halved" /> Active keys</h3>
           <table className="table">
             <thead>
               <tr>
@@ -457,62 +459,82 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <h2 className="page-title">Dashboard</h2>
-      <p className="page-sub">IRC announce + wishlist poll status</p>
       {status.unsatisfied?.active && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--danger)' }}>
-          <h3 style={{ color: 'var(--danger)' }}>Filters paused — unsatisfied limit</h3>
+          <h3 style={{ color: 'var(--danger)' }}>
+            <i className="fa-solid fa-triangle-exclamation" /> Filters paused — unsatisfied limit
+          </h3>
           <p className="detail">{status.unsatisfied.message}</p>
           <p className="detail">Open Filters to clear the lockout and re-enable rules after seeding.</p>
         </div>
       )}
       <div className="grid stats">
-        <div className="card">
-          <h3>Snatches</h3>
-          <div className="stat-value">{status.snatchCount}</div>
-          <div className="stat-label">successful downloads</div>
-        </div>
-        <div className="card">
-          <h3>IRC</h3>
-          <div className="stat-value">
-            <span className={`badge ${status.irc?.joined ? 'ok' : status.irc?.connected ? 'warn' : 'err'}`}>
-              {status.irc?.phase || (status.irc?.connected ? 'connected' : 'offline')}
-            </span>
+        <div className="card metric-card">
+          <div className="card-icon blue">
+            <i className="fa-solid fa-download" />
           </div>
-          <div className="stat-label">
-            {status.irc?.nick} @ {status.irc?.host}:{status.irc?.port}
-            <br />
-            identified: {status.irc?.identified ? 'yes' : 'no'} · joined: {status.irc?.joined ? 'yes' : 'no'}
-            {status.irc?.lastError ? (
-              <>
-                <br />
-                error: {status.irc.lastError}
-              </>
-            ) : null}
+          <div className="card-data">
+            <span className="label">Snatches</span>
+            <h3>{status.snatchCount}</h3>
+            <div className="sub-label">successful downloads</div>
           </div>
         </div>
-        <div className="card">
-          <h3>Wishlist</h3>
-          <div className="stat-value">
-            <span className={`badge ${status.wishlist?.enabled ? 'ok' : 'warn'}`}>
-              {status.wishlist?.running ? 'polling' : status.wishlist?.enabled ? 'idle' : 'off'}
-            </span>
+        <div className="card metric-card">
+          <div className={`card-icon ${status.irc?.joined ? 'green' : status.irc?.connected ? 'orange' : 'red'}`}>
+            <i className="fa-solid fa-tower-broadcast" />
           </div>
-          <div className="stat-label">{status.wishlist?.lastPollResult || 'no polls yet'}</div>
+          <div className="card-data">
+            <span className="label">IRC</span>
+            <h3>
+              <span className={`badge ${status.irc?.joined ? 'ok' : status.irc?.connected ? 'warn' : 'err'}`}>
+                {status.irc?.phase || (status.irc?.connected ? 'connected' : 'offline')}
+              </span>
+            </h3>
+            <div className="sub-label">
+              {status.irc?.nick} @ {status.irc?.host}:{status.irc?.port}
+              <br />
+              identified: {status.irc?.identified ? 'yes' : 'no'} · joined: {status.irc?.joined ? 'yes' : 'no'}
+              {status.irc?.lastError ? (
+                <>
+                  <br />
+                  error: {status.irc.lastError}
+                </>
+              ) : null}
+            </div>
+          </div>
         </div>
-        <div className="card">
-          <h3>MAM</h3>
-          <div className="stat-value">
-            <span className={`badge ${status.mamConfigured ? 'ok' : 'err'}`}>
-              {status.mamConfigured ? 'configured' : 'missing mam_id'}
-            </span>
+        <div className="card metric-card">
+          <div className={`card-icon ${status.wishlist?.enabled ? 'green' : 'orange'}`}>
+            <i className="fa-solid fa-list-check" />
           </div>
-          <div className="stat-label">session cookie</div>
+          <div className="card-data">
+            <span className="label">Wishlist</span>
+            <h3>
+              <span className={`badge ${status.wishlist?.enabled ? 'ok' : 'warn'}`}>
+                {status.wishlist?.running ? 'polling' : status.wishlist?.enabled ? 'idle' : 'off'}
+              </span>
+            </h3>
+            <div className="sub-label">{status.wishlist?.lastPollResult || 'no polls yet'}</div>
+          </div>
+        </div>
+        <div className="card metric-card">
+          <div className={`card-icon ${status.mamConfigured ? 'green' : 'red'}`}>
+            <i className="fa-solid fa-paw" />
+          </div>
+          <div className="card-data">
+            <span className="label">MAM</span>
+            <h3>
+              <span className={`badge ${status.mamConfigured ? 'ok' : 'err'}`}>
+                {status.mamConfigured ? 'configured' : 'missing mam_id'}
+              </span>
+            </h3>
+            <div className="sub-label">session cookie</div>
+          </div>
         </div>
       </div>
       {status.lastAnnounce && (
         <div className="card" style={{ marginTop: '1rem' }}>
-          <h3>Last announce</h3>
+          <h3><i className="fa-solid fa-bullhorn" /> Last announce</h3>
           <div className="title">
             {status.lastAnnounce.author} — {status.lastAnnounce.title}
           </div>
@@ -523,7 +545,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       )}
       {Array.isArray(status.irc?.recentLines) && status.irc.recentLines.length > 0 && (
         <div className="card" style={{ marginTop: '1rem' }}>
-          <h3>IRC log (redacted)</h3>
+          <h3><i className="fa-solid fa-terminal" /> IRC log (redacted)</h3>
           <pre
             style={{
               margin: 0,
@@ -635,8 +657,6 @@ function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <h2 className="page-title">Live feed</h2>
-      <p className="page-sub">SSE stream of announces, matches, rejects, and snatches</p>
       {actionMsg && <div className={actionOk ? 'okmsg' : 'error'} style={{ marginBottom: '0.75rem' }}>{actionMsg}</div>}
       <div className="feed">
         {items.length === 0 && <div className="card">Waiting for events…</div>}
@@ -981,8 +1001,6 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <h2 className="page-title">Filters</h2>
-      <p className="page-sub">Autobrr-style snatch rules evaluated against IRC and wishlist releases</p>
       {unsatisfied?.active && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--danger)' }}>
           <h3 style={{ color: 'var(--danger)' }}>Unsatisfied torrent limit</h3>
@@ -1019,7 +1037,7 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
       <div className="grid two">
         {isAdmin && (
         <div className="card">
-          <h3>{editingId ? 'Edit rule' : 'New rule'}</h3>
+          <h3><i className="fa-solid fa-filter" /> {editingId ? 'Edit rule' : 'New rule'}</h3>
           <div className="field">
             <label>Name</label>
             <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
@@ -1215,7 +1233,7 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
         </div>
         )}
         <div className="card">
-          <h3>Active rules</h3>
+          <h3><i className="fa-solid fa-table-list" /> Active rules</h3>
           <table className="table">
             <thead>
               <tr>
@@ -1361,12 +1379,10 @@ function WishlistPage({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <h2 className="page-title">Wishlist</h2>
-      <p className="page-sub">Periodic MAM search watches for authors, series, and titles</p>
       <div className="grid two">
         {isAdmin && (
           <div className="card">
-            <h3>New watch</h3>
+            <h3><i className="fa-solid fa-plus" /> New watch</h3>
             <div className="field">
               <label>Name</label>
               <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
@@ -1402,7 +1418,7 @@ function WishlistPage({ isAdmin }: { isAdmin: boolean }) {
           </div>
         )}
         <div className="card">
-          <h3>Watches</h3>
+          <h3><i className="fa-solid fa-list-check" /> Watches</h3>
           <table className="table">
             <thead>
               <tr>
@@ -1498,8 +1514,6 @@ function SearchPage({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <h2 className="page-title">Search</h2>
-      <p className="page-sub">Ad-hoc MAM search with one-click snatch</p>
       <div className="card">
         <div className="row">
           <div className="field" style={{ flex: 1, marginBottom: 0 }}>
@@ -1570,8 +1584,6 @@ function HistoryPage() {
 
   return (
     <>
-      <h2 className="page-title">History</h2>
-      <p className="page-sub">Snatch log</p>
       <div className="card">
         <table className="table">
           <thead>
@@ -1770,11 +1782,9 @@ function SettingsPage() {
 
   return (
     <>
-      <h2 className="page-title">Settings</h2>
-      <p className="page-sub">MAM session, IRC, qBittorrent, Discord</p>
       <div className="grid two">
         <div className="card">
-          <h3>MyAnonamouse</h3>
+          <h3><i className="fa-solid fa-paw" /> MyAnonamouse</h3>
           <div className="field">
             <label>mam_id cookie {settings.mam_id_set ? `(set: ${settings.mam_id})` : '(not set)'}</label>
             <input
@@ -1794,7 +1804,7 @@ function SettingsPage() {
           {mamMsg && <div className={mamOk ? 'okmsg' : 'error'}>{mamMsg}</div>}
         </div>
         <div className="card">
-          <h3>IRC</h3>
+          <h3><i className="fa-solid fa-tower-broadcast" /> IRC</h3>
           <p className="detail">
             IRC does not start with the server. Use <strong>Start IRC</strong> / <strong>Stop IRC</strong> on the
             Dashboard when you want it connected.
@@ -1839,7 +1849,7 @@ function SettingsPage() {
           </p>
         </div>
         <div className="card">
-          <h3>qBittorrent</h3>
+          <h3><i className="fa-solid fa-cloud-arrow-down" /> qBittorrent</h3>
           <div className="field">
             <label>Host</label>
             <input
@@ -1889,7 +1899,7 @@ function SettingsPage() {
           <p className="detail">Uses the host/user above (and password field if filled). Save settings to persist.</p>
         </div>
         <div className="card">
-          <h3>Discord webhooks</h3>
+          <h3><i className="fa-brands fa-discord" /> Discord webhooks</h3>
           <p className="detail">
             Paste a webhook URL, click <strong>Test</strong>, then <strong>Save settings</strong> to persist.
             Blank fields keep the currently saved URL.
@@ -2018,19 +2028,47 @@ export default function App() {
   }, []);
 
   const nav = useMemo(() => {
-    const items: Array<[Page, string]> = [
-      ['dashboard', 'Dashboard'],
-      ['live', 'Live'],
-      ['filters', 'Filters'],
-      ['wishlist', 'Wishlist'],
-      ['search', 'Search'],
-      ['history', 'History'],
+    const items: Array<[Page, string, string]> = [
+      ['dashboard', 'Dashboard', 'fa-solid fa-gauge-high'],
+      ['live', 'Live', 'fa-solid fa-bolt'],
+      ['filters', 'Filters', 'fa-solid fa-filter'],
+      ['wishlist', 'Wishlist', 'fa-solid fa-heart'],
+      ['search', 'Search', 'fa-solid fa-magnifying-glass'],
+      ['history', 'History', 'fa-solid fa-clock-rotate-left'],
     ];
     if (isAdmin) {
-      items.push(['settings', 'Settings'], ['users', 'Users'], ['api-keys', 'API Keys']);
+      items.push(
+        ['settings', 'Settings', 'fa-solid fa-gear'],
+        ['users', 'Users', 'fa-solid fa-users'],
+        ['api-keys', 'API Keys', 'fa-solid fa-key']
+      );
     }
     return items;
   }, [isAdmin]);
+
+  const pageMeta = useMemo(() => {
+    const meta: Record<Page, { title: string; subtitle: string }> = {
+      dashboard: { title: 'Dashboard', subtitle: 'IRC announce + wishlist poll status' },
+      live: { title: 'Live feed', subtitle: 'SSE stream of announces, matches, rejects, and snatches' },
+      filters: {
+        title: 'Filters',
+        subtitle: 'Autobrr-style snatch rules evaluated against IRC and wishlist releases',
+      },
+      wishlist: {
+        title: 'Wishlist',
+        subtitle: 'Periodic MAM search watches for authors, series, and titles',
+      },
+      search: { title: 'Search', subtitle: 'Ad-hoc MAM search with one-click snatch' },
+      history: { title: 'History', subtitle: 'Snatch log' },
+      settings: { title: 'Settings', subtitle: 'MAM session, IRC, qBittorrent, Discord' },
+      users: { title: 'Users', subtitle: 'Admin and viewer accounts for the web UI' },
+      'api-keys': {
+        title: 'API keys',
+        subtitle: 'Scoped keys for Discord bots and home monitors (/api/v1)',
+      },
+    };
+    return meta[page];
+  }, [page]);
 
   if (user === undefined) return null;
   if (!user) return <Login onDone={(u) => setUser(u)} />;
@@ -2038,42 +2076,86 @@ export default function App() {
     return <ChangePasswordGate user={user} onDone={(u) => setUser(u)} />;
   }
 
+  const initials = user.username.slice(0, 2).toUpperCase();
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand">
-          MyBook<span>BRR</span>
-        </div>
-        <div className="detail" style={{ padding: '0 0.75rem 0.5rem', color: 'var(--muted)' }}>
-          {user.username} · {user.role}
+        <div className="sidebar-header">
+          <div className="brand-logo">
+            <span className="logo-icon">
+              <i className="fa-solid fa-book-open" />
+            </span>
+            <div className="brand-text">
+              <h2>
+                MyBook<span>BRR</span>
+              </h2>
+              <p>Control Console</p>
+            </div>
+          </div>
         </div>
         <nav className="nav">
-          {nav.map(([id, label]) => (
+          {nav.map(([id, label, icon]) => (
             <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}>
-              {label}
+              <i className={icon} />
+              <span>{label}</span>
             </button>
           ))}
         </nav>
-        <button
-          className="btn secondary"
-          onClick={() =>
-            api('/api/auth/logout', { method: 'POST', body: '{}' }).then(() => setUser(null))
-          }
-        >
-          Sign out
-        </button>
+        <div className="sidebar-footer">
+          <div className="sidebar-user">
+            Signed in as <strong>{user.username}</strong> · {user.role}
+          </div>
+          <button
+            className="btn secondary"
+            style={{ width: '100%' }}
+            onClick={() =>
+              api('/api/auth/logout', { method: 'POST', body: '{}' }).then(() => setUser(null))
+            }
+          >
+            <i className="fa-solid fa-right-from-bracket" /> Sign out
+          </button>
+        </div>
       </aside>
-      <main className="main">
-        {page === 'dashboard' && <Dashboard isAdmin={isAdmin} />}
-        {page === 'live' && <LiveFeed isAdmin={isAdmin} />}
-        {page === 'filters' && <FiltersPage isAdmin={isAdmin} />}
-        {page === 'wishlist' && <WishlistPage isAdmin={isAdmin} />}
-        {page === 'search' && <SearchPage isAdmin={isAdmin} />}
-        {page === 'history' && <HistoryPage />}
-        {page === 'settings' && isAdmin && <SettingsPage />}
-        {page === 'users' && isAdmin && <UsersPage />}
-        {page === 'api-keys' && isAdmin && <ApiKeysPage />}
-      </main>
+      <div className="workspace">
+        <header className="workspace-header">
+          <div>
+            <h1>{pageMeta.title}</h1>
+            <p className="page-sub">{pageMeta.subtitle}</p>
+          </div>
+          <div className="header-right">
+            <div className="status-indicator" title="Application online">
+              <span className="status-dot green animate-pulse" />
+              <span>Engine Active</span>
+            </div>
+            <div className="header-user-card">
+              <span className="avatar">{initials}</span>
+              <span>{user.username}</span>
+              <button
+                type="button"
+                className="btn-logout"
+                title="Sign out"
+                onClick={() =>
+                  api('/api/auth/logout', { method: 'POST', body: '{}' }).then(() => setUser(null))
+                }
+              >
+                <i className="fa-solid fa-right-from-bracket" />
+              </button>
+            </div>
+          </div>
+        </header>
+        <div className="content-area">
+          {page === 'dashboard' && <Dashboard isAdmin={isAdmin} />}
+          {page === 'live' && <LiveFeed isAdmin={isAdmin} />}
+          {page === 'filters' && <FiltersPage isAdmin={isAdmin} />}
+          {page === 'wishlist' && <WishlistPage isAdmin={isAdmin} />}
+          {page === 'search' && <SearchPage isAdmin={isAdmin} />}
+          {page === 'history' && <HistoryPage />}
+          {page === 'settings' && isAdmin && <SettingsPage />}
+          {page === 'users' && isAdmin && <UsersPage />}
+          {page === 'api-keys' && isAdmin && <ApiKeysPage />}
+        </div>
+      </div>
     </div>
   );
 }
