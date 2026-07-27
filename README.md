@@ -142,7 +142,7 @@ Wishlist poll ─┼→ normalize → filters → dedup → MAM download → qBi
 Manual search ─┘
 ```
 
-Data lives in `DATA_DIR` (`./data/mybookbrr.db` by default). Downloaded `.torrent` files land in `DOWNLOADS_DIR`.
+Data lives in `DATA_DIR` (`./data/mybookbrr.db` by default). Snatches send the `.torrent` to qBittorrent in-memory (no staging file left behind); watch-folder mode writes only into the configured watch directory.
 
 ## Scripts
 

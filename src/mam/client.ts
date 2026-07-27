@@ -1,7 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { getSetCookieHeaders, httpRequest } from '../http.js';
-import { getDownloadsDir, getSetting, setSetting } from '../db/index.js';
+import { getSetting, setSetting } from '../db/index.js';
 import type { MamDownloadResult, MamSearchParams, MamSearchResult } from './types.js';
 
 const UA =
@@ -155,13 +153,12 @@ export async function downloadTorrent(torrentId: string): Promise<MamDownloadRes
 
   if (isBencode(res.body)) {
     const filename = `MAM_${torrentId}.torrent`;
-    const filePath = path.join(getDownloadsDir(), filename);
-    fs.writeFileSync(filePath, res.body);
+    // Keep the torrent in memory only. qBittorrent gets the buffer via API;
+    // watch-folder mode writes its own copy under the configured watch dir.
     return {
       success: true,
       torrentId,
       filename,
-      filePath,
       sizeBytes: res.body.length,
       buffer: res.body,
     };

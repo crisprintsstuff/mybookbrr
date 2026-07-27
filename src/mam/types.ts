@@ -45,7 +45,8 @@ export interface MamDownloadResult {
   success: true;
   torrentId: string;
   filename: string;
-  filePath: string;
+  /** Optional temp path; cleared after push to the download client when present. */
+  filePath?: string;
   sizeBytes: number;
   buffer: Buffer;
 }

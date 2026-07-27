@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import { evaluateRelease } from '../filters/evaluator.js';
 import { downloadTorrent, isUnsatisfiedLimitError } from '../mam/client.js';
 import { addTorrentFile, writeWatchFolder } from '../clients/qbittorrent.js';
@@ -16,6 +17,16 @@ import {
 import { getSetting, setSetting } from '../db/index.js';
 import { handleUnsatisfiedLimit } from '../filters/unsatisfiedGuard.js';
 import type { FilterRule, Release } from '../types.js';
+
+/** Remove a staging .torrent after the client has accepted it (never the watch-folder copy). */
+function removeStagingTorrent(filePath: string | undefined): void {
+  if (!filePath) return;
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (err) {
+    console.warn(`[Snatch] Failed to delete staging torrent ${filePath}:`, err);
+  }
+}
 
 export interface ProcessOptions {
   skipFilters?: boolean;
@@ -106,6 +117,9 @@ export async function processRelease(
       const q = await addTorrentFile(dl.buffer, dl.filename, { category, savePath });
       clientMessage = q.message;
     }
+    // Drop any staging file under DOWNLOADS_DIR once the client has the torrent.
+    // Watch-folder delivery keeps its own copy in the watch directory.
+    removeStagingTorrent(dl.filePath);
 
     markSeen(release.torrentId, release.title, release.source);
     if (matchedFilter) bumpFilterSnatch(matchedFilter.id);
