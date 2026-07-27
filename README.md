@@ -12,6 +12,7 @@ Autobrr-style MyAnonamouse auto-downloader with **IRC `#announce` snatching** an
 - Discord webhook notifications
 - Multi-user auth (`admin` / `viewer`) with SQLite sessions
 - Scoped API keys + versioned external API (`/api/v1`) for bots and monitors
+- Companion Discord control bot (same repo: [`discord-bot/`](discord-bot/))
 
 ## Quick start (local)
 
@@ -72,6 +73,12 @@ Also authorize your public IP for IRC under MAM security if `#announce` connecti
 | Discord bot / monitor | `Authorization: Bearer mbb_…` or `X-API-Key` | Scopes assigned per key |
 
 Bootstrap: on first start with an empty `users` table, an admin is created from `BOOTSTRAP_ADMIN_PASSWORD` (or legacy `AUTH_PASSWORD`). Env passwords are not used for day-to-day login after that.
+
+## Discord bot
+
+The Discord control bot lives in [`discord-bot/`](discord-bot/) in this monorepo (slash commands, control panel, portal heartbeat). See [discord-bot/README.md](discord-bot/README.md) for setup.
+
+On this host it is also symlinked to `/home/cris/discordbots/mybookbrr` for the OmegaBot portal.
 
 ## External API (`/api/v1`)
 

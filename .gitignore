@@ -11,3 +11,9 @@ downloads/*
 *.log
 .DS_Store
 *.torrent
+
+# Discord bot (local secrets + venv)
+discord-bot/venv/
+discord-bot/config.json
+discord-bot/__pycache__/
+discord-bot/*.log

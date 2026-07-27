@@ -1,0 +1,8 @@
+{
+  "DISCORD_TOKEN": "",
+  "ALLOWED_ROLE_ID": 1387139612572385290,
+  "MYBOOKBRR_URL": "http://127.0.0.1:7480",
+  "MYBOOKBRR_API_KEY": "",
+  "PORTAL_HEARTBEAT_URL": "http://localhost:5000/api/heartbeat",
+  "BOT_ID": "mybookbrr"
+}
