@@ -20,6 +20,7 @@ import {
 } from '../db/repos.js';
 import { getSetting, setSetting } from '../db/index.js';
 import { handleUnsatisfiedLimit, getUnsatisfiedStatus } from '../filters/unsatisfiedGuard.js';
+import { getTimedLockoutStatus } from '../filters/timedLockout.js';
 import type { FilterRule, Release } from '../types.js';
 
 /** Remove a staging .torrent after the client has accepted it (never the watch-folder copy). */
@@ -93,15 +94,25 @@ export async function processRelease(
     }
   }
 
-  // During MAM unsatisfied lockout, do not evaluate/reject (would permanently markSeen).
+  // During MAM unsatisfied or manual timed lockout, do not evaluate/reject (would permanently markSeen).
   // Manual/force snatches can still proceed.
-  const lockout = getUnsatisfiedStatus();
-  if (lockout.active && !options.force && !options.skipFilters) {
-    const reason =
-      'Skipped: MAM unsatisfied lockout active — clear the lockout before auto-snatching again';
-    eventBus.broadcast('skip', { release, reason, lockout: true });
+  const unsatisfied = getUnsatisfiedStatus();
+  const timed = getTimedLockoutStatus();
+  const lockoutActive = unsatisfied.active || timed.active;
+  if (lockoutActive && !options.force && !options.skipFilters) {
+    const reason = unsatisfied.active
+      ? 'Skipped: MAM unsatisfied lockout active — clear the lockout before auto-snatching again'
+      : `Skipped: manual MAM lockout until ${timed.until} — filters will re-enable automatically`;
+    eventBus.broadcast('skip', {
+      release,
+      reason,
+      lockout: true,
+      timedLockout: timed.active,
+      unsatisfiedLockout: unsatisfied.active,
+    });
     return { snatched: false, skipped: true, reason, release };
   }
+  const lockout = { active: lockoutActive };
 
   // Release stream: new IRC/wishlist announces (not manual one-clicks).
   if (!options.quietStream && release.source !== 'manual') {

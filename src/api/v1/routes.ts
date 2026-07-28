@@ -19,6 +19,11 @@ import {
   clearUnsatisfiedLockout,
   getUnsatisfiedStatus,
 } from '../../filters/unsatisfiedGuard.js';
+import {
+  clearTimedLockout,
+  getTimedLockoutStatus,
+  setTimedLockout,
+} from '../../filters/timedLockout.js';
 import type { FilterRule, WishlistWatch } from '../../types.js';
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
@@ -71,6 +76,55 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       ...result,
     });
     return { ok: true, ...result, unsatisfied: getUnsatisfiedStatus() };
+  });
+
+  app.get('/api/v1/filters/timed-lockout', async (req, reply) => {
+    if (!requireScope(req, reply, 'filters:read')) return;
+    return getTimedLockoutStatus();
+  });
+
+  app.post('/api/v1/filters/timed-lockout', async (req, reply) => {
+    if (!requireScope(req, reply, 'filters:write')) return;
+    const body = (req.body || {}) as {
+      until?: string;
+      hours?: number;
+      minutes?: number;
+      note?: string;
+      disableFilters?: boolean;
+    };
+    try {
+      let until: Date | null = null;
+      if (body.until) {
+        until = new Date(body.until);
+      } else if (body.hours != null || body.minutes != null) {
+        const ms =
+          (Number(body.hours) || 0) * 3_600_000 + (Number(body.minutes) || 0) * 60_000;
+        if (ms <= 0) {
+          return reply.code(400).send({ error: 'hours/minutes must be positive' });
+        }
+        until = new Date(Date.now() + ms);
+      }
+      if (!until || Number.isNaN(until.getTime())) {
+        return reply.code(400).send({ error: 'Provide until (ISO) or hours/minutes' });
+      }
+      const status = await setTimedLockout({
+        until,
+        note: body.note,
+        disableFilters: body.disableFilters,
+      });
+      return { ok: true, timedLockout: status };
+    } catch (err) {
+      return reply
+        .code(400)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/v1/filters/timed-lockout/clear', async (req, reply) => {
+    if (!requireScope(req, reply, 'filters:write')) return;
+    const body = (req.body || {}) as { reenableFilters?: boolean };
+    const result = clearTimedLockout(body.reenableFilters !== false);
+    return { ok: true, ...result, timedLockout: getTimedLockoutStatus() };
   });
 
   app.get('/api/v1/wishlist', async (req, reply) => {

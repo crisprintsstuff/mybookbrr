@@ -468,6 +468,17 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           <p className="detail">Open Filters to clear the lockout and re-enable rules after seeding.</p>
         </div>
       )}
+      {status.timedLockout?.active && (
+        <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--accent-orange, #c4783a)' }}>
+          <h3 style={{ color: 'var(--accent-orange, #c4783a)' }}>
+            <i className="fa-solid fa-hourglass-half" /> Filters paused — manual MAM lockout timer
+          </h3>
+          <p className="detail">{status.timedLockout.message}</p>
+          <p className="detail">
+            Filters re-enable automatically when the timer ends. Manage under Filters.
+          </p>
+        </div>
+      )}
       <div className="grid stats">
         <div className="card metric-card">
           <div className="card-icon blue">
@@ -884,16 +895,21 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
   const [msgOk, setMsgOk] = useState(true);
   const [testingHook, setTestingHook] = useState(false);
   const [unsatisfied, setUnsatisfied] = useState<any>(null);
+  const [timedLockout, setTimedLockout] = useState<any>(null);
+  const [lockoutHours, setLockoutHours] = useState('6');
+  const [lockoutNote, setLockoutNote] = useState('');
   const [autoDisable, setAutoDisable] = useState(true);
 
   const load = async () => {
-    const [list, guard, settings] = await Promise.all([
+    const [list, guard, timed, settings] = await Promise.all([
       api<any[]>('/api/filters'),
       api<any>('/api/filters/unsatisfied'),
+      api<any>('/api/filters/timed-lockout'),
       api<any>('/api/settings'),
     ]);
     setFilters(list);
     setUnsatisfied(guard);
+    setTimedLockout(timed);
     setAutoDisable(settings.filters_auto_disable_on_unsatisfied !== 'false');
   };
   useEffect(() => {
@@ -999,6 +1015,56 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  async function setManualLockout() {
+    const hours = Number(lockoutHours);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      setMsgOk(false);
+      setMsg('Enter a positive number of hours');
+      return;
+    }
+    try {
+      const r = await api<{ ok: boolean; timedLockout: any }>('/api/filters/timed-lockout', {
+        method: 'POST',
+        body: JSON.stringify({ hours, note: lockoutNote || undefined }),
+      });
+      setMsgOk(true);
+      setMsg(`Timed lockout set until ${r.timedLockout?.until || 'scheduled'}`);
+      setLockoutNote('');
+      await load();
+    } catch (err) {
+      setMsgOk(false);
+      setMsg(err instanceof Error ? err.message : 'Failed to set timed lockout');
+    }
+  }
+
+  async function clearTimed(reenableFilters: boolean) {
+    try {
+      const r = await api<{ ok: boolean; reenabled: number }>('/api/filters/timed-lockout/clear', {
+        method: 'POST',
+        body: JSON.stringify({ reenableFilters }),
+      });
+      setMsgOk(true);
+      setMsg(
+        reenableFilters
+          ? `Timed lockout cleared — re-enabled ${r.reenabled} filter(s)`
+          : 'Timed lockout cleared — filters left disabled'
+      );
+      await load();
+    } catch (err) {
+      setMsgOk(false);
+      setMsg(err instanceof Error ? err.message : 'Failed to clear timed lockout');
+    }
+  }
+
+  function formatRemaining(ms: number | null | undefined) {
+    if (ms == null || ms < 0) return '';
+    const totalMin = Math.ceil(ms / 60_000);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (h <= 0) return `${m}m remaining`;
+    return `${h}h ${m}m remaining`;
+  }
+
   return (
     <>
       {unsatisfied?.active && (
@@ -1016,6 +1082,79 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
               </button>
             </div>
           )}
+        </div>
+      )}
+      {timedLockout?.active && (
+        <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--accent-orange, #c4783a)' }}>
+          <h3 style={{ color: 'var(--accent-orange, #c4783a)' }}>Manual MAM lockout timer</h3>
+          <p className="detail">{timedLockout.message}</p>
+          {timedLockout.until && (
+            <p className="detail">
+              Until {timedLockout.until}
+              {timedLockout.remainingMs != null ? ` · ${formatRemaining(timedLockout.remainingMs)}` : ''}
+            </p>
+          )}
+          {isAdmin && (
+            <div className="row" style={{ marginTop: '0.6rem' }}>
+              <button className="btn" onClick={() => void clearTimed(true)}>
+                Clear early & re-enable
+              </button>
+              <button className="btn secondary" onClick={() => void clearTimed(false)}>
+                Clear early only
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {isAdmin && !timedLockout?.active && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <h3>
+            <i className="fa-solid fa-hourglass-half" /> Set manual MAM lockout timer
+          </h3>
+          <p className="detail">
+            Use when MAM shows a website lockout timer (not visible to IRC/API). Disables enabled filters and
+            skips auto-snatch until the timer ends, then re-enables those filters automatically.
+          </p>
+          <div className="row" style={{ marginTop: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <label>
+              Hours{' '}
+              <input
+                type="number"
+                min={0.25}
+                step={0.25}
+                value={lockoutHours}
+                onChange={(e) => setLockoutHours(e.target.value)}
+                style={{ width: '5rem' }}
+              />
+            </label>
+            <button type="button" className="btn secondary" onClick={() => setLockoutHours('1')}>
+              1h
+            </button>
+            <button type="button" className="btn secondary" onClick={() => setLockoutHours('6')}>
+              6h
+            </button>
+            <button type="button" className="btn secondary" onClick={() => setLockoutHours('12')}>
+              12h
+            </button>
+            <button type="button" className="btn secondary" onClick={() => setLockoutHours('24')}>
+              24h
+            </button>
+          </div>
+          <label style={{ display: 'block', marginTop: '0.6rem' }}>
+            Note (optional)
+            <input
+              type="text"
+              value={lockoutNote}
+              onChange={(e) => setLockoutNote(e.target.value)}
+              placeholder="e.g. MAM site timer shows 6h"
+              style={{ width: '100%', marginTop: '0.25rem' }}
+            />
+          </label>
+          <div className="row" style={{ marginTop: '0.6rem' }}>
+            <button className="btn" onClick={() => void setManualLockout()}>
+              Start lockout
+            </button>
+          </div>
         </div>
       )}
       {isAdmin && (

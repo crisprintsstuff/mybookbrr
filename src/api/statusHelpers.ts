@@ -1,5 +1,6 @@
 import { getSetting } from '../db/index.js';
 import { snatchCount } from '../db/repos.js';
+import { getTimedLockoutStatus } from '../filters/timedLockout.js';
 import { getUnsatisfiedStatus } from '../filters/unsatisfiedGuard.js';
 import { ircListener } from '../irc/listener.js';
 import { getWishlistStatus } from '../wishlist/poller.js';
@@ -21,6 +22,7 @@ export function buildStatusPayload() {
     lastAnnounce,
     mamConfigured: Boolean(getSetting('mam_id')),
     unsatisfied: getUnsatisfiedStatus(),
+    timedLockout: getTimedLockoutStatus(),
   };
 }
 
@@ -29,6 +31,7 @@ export type HealthChecks = {
   ircDesired: boolean;
   ircJoined: boolean;
   unsatisfied: boolean;
+  timedLockout: boolean;
   wishlistEnabled: boolean;
 };
 
@@ -40,12 +43,16 @@ export function buildHealthPayload() {
     ircDesired: status.ircDesired,
     ircJoined: Boolean(status.irc?.joined),
     unsatisfied: Boolean(status.unsatisfied?.active),
+    timedLockout: Boolean(status.timedLockout?.active),
     wishlistEnabled: status.wishlist?.enabled !== false,
   };
 
   // Ready when MAM is configured, not lockout-paused, and IRC is joined if it should be running.
   const ready =
-    checks.mamConfigured && !checks.unsatisfied && (!checks.ircDesired || checks.ircJoined);
+    checks.mamConfigured &&
+    !checks.unsatisfied &&
+    !checks.timedLockout &&
+    (!checks.ircDesired || checks.ircJoined);
 
   return {
     ok: true,

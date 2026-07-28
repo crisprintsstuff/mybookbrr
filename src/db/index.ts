@@ -221,6 +221,9 @@ export function initDb(dbPath?: string): Db {
     mam_unsatisfied_active: 'false',
     mam_unsatisfied_at: '',
     mam_unsatisfied_disabled_filters: '[]',
+    mam_timed_lockout_until: '',
+    mam_timed_lockout_disabled_filters: '[]',
+    mam_timed_lockout_note: '',
     last_announce: '',
     snatch_count_total: '0',
   };

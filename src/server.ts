@@ -14,6 +14,7 @@ import { startWishlistPoller } from './wishlist/poller.js';
 import { eventBus, processRelease } from './snatch/orchestrator.js';
 import { alertIrcFailure } from './notify/alerts.js';
 import { startBackupScheduler } from './db/backup.js';
+import { startTimedLockoutScheduler } from './filters/timedLockout.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 7480);
@@ -92,6 +93,7 @@ async function main() {
 
   startWishlistPoller();
   startBackupScheduler();
+  startTimedLockoutScheduler();
 
   await app.listen({ port: PORT, host: HOST });
   console.log(`[MyBookBRR] listening on http://${HOST}:${PORT}`);
