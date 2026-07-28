@@ -73,6 +73,7 @@ export class IrcListener extends EventEmitter {
 
   start(): void {
     this.shouldRun = true;
+    setSetting('irc_enabled', 'true');
     // Already online — do not bounce (avoids NickServ/JOIN flood).
     if (this.socket && !this.socket.destroyed && this.status.connected) {
       this.note('[SYSTEM] start() ignored — already connected');
@@ -83,6 +84,7 @@ export class IrcListener extends EventEmitter {
 
   stop(): void {
     this.shouldRun = false;
+    setSetting('irc_enabled', 'false');
     this.clearTimers();
     if (this.socket && !this.socket.destroyed) {
       try {
@@ -102,6 +104,7 @@ export class IrcListener extends EventEmitter {
   restart(reason = 'restart'): void {
     this.note(`[SYSTEM] IRC restart scheduled (${reason})`);
     this.shouldRun = true;
+    setSetting('irc_enabled', 'true');
     if (this.restartTimer) clearTimeout(this.restartTimer);
     const wasConnected = Boolean(this.socket && !this.socket.destroyed);
     if (wasConnected) {

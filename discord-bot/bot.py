@@ -52,6 +52,23 @@ MYBOOKBRR_API_KEY = (
 ).strip()
 PORTAL_HEARTBEAT_URL = config.get("PORTAL_HEARTBEAT_URL", "http://localhost:5000/api/heartbeat")
 BOT_ID = config.get("BOT_ID", "mybookbrr")
+BOT_SOCKET_PORT = int(config.get("IPC_PORT") or config.get("BOT_SOCKET_PORT") or 9998)
+PORTAL_AUTH_CONFIG = config.get(
+    "PORTAL_AUTH_CONFIG",
+    "/home/cris/discordbots/dashboard/auth_config.json",
+)
+
+
+def get_portal_auth_headers() -> dict[str, str]:
+    try:
+        with open(PORTAL_AUTH_CONFIG, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        token = (data.get("flask_secret_key") or "").strip()
+        if token:
+            return {"X-Portal-Auth": token}
+    except Exception as e:
+        logger.warning("Could not load portal auth header: %s", e)
+    return {}
 
 
 def has_allowed_role(interaction: discord.Interaction) -> bool:
@@ -301,6 +318,40 @@ class MyBookControlView(discord.ui.View):
         await message.edit(embed=embed, view=self)
 
 
+
+async def build_control_panel():
+    """Shared embed+view for slash deploy and portal IPC."""
+    status_data, status_code = await mbb_request("GET", "/status")
+    filters_data, filters_code = await mbb_request("GET", "/filters")
+    if filters_code != 200 or not isinstance(filters_data, list):
+        filters_data = []
+
+    view = MyBookControlView()
+    view.add_item(FilterDropdown(filters_data))
+    view.add_item(IrcButton("start"))
+    view.add_item(IrcButton("stop"))
+    view.add_item(RefreshButton())
+
+    if status_code == 200 and isinstance(status_data, dict):
+        embed = status_embed(status_data)
+        embed.title = "MyBookBRR control panel"
+    else:
+        embed = discord.Embed(
+            title="MyBookBRR control panel",
+            description=f"Could not load status (HTTP {status_code}).",
+            color=discord.Color.red(),
+        )
+
+    lines = []
+    for f in filters_data[:12]:
+        icon = "🟢" if f.get("enabled") else "🔴"
+        lines.append(f"{icon} **{f.get('name')}** (`{f.get('id')}`)")
+    if lines:
+        embed.add_field(name="Filters", value="\n".join(lines)[:1024], inline=False)
+    embed.set_footer(text="Toggle filters · IRC start/stop · authorized role only")
+    return embed, view, status_code
+
+
 # ----------------------------------------------------
 # Bot core
 # ----------------------------------------------------
@@ -319,6 +370,43 @@ class MyBookBrrBot(commands.Bot):
         await self.tree.sync()
         logger.info("Slash commands and persistent views synced.")
         self.loop.create_task(self.start_dashboard_heartbeat())
+        self.loop.create_task(self.start_web_listener())
+
+    async def start_web_listener(self):
+        """Local IPC for portal panel deploy (autobrr parity)."""
+        server = await asyncio.start_server(self.handle_web_request, "127.0.0.1", BOT_SOCKET_PORT)
+        logger.info("IPC communication backend actively routing via port %s", BOT_SOCKET_PORT)
+        async with server:
+            await server.serve_forever()
+
+    async def handle_web_request(self, reader, writer):
+        data = await reader.read(4096)
+        try:
+            req = json.loads(data.decode())
+            action = req.get("action")
+            if action == "deploy_panel":
+                channel_id = int(req.get("channel_id"))
+                channel = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
+                embed, view, status_code = await build_control_panel()
+                if status_code != 200:
+                    response = {
+                        "status": "error",
+                        "message": f"Cannot reach MyBookBRR API (HTTP {status_code}).",
+                    }
+                else:
+                    await channel.send(embed=embed, view=view)
+                    response = {
+                        "status": "success",
+                        "message": "MyBookBRR control panel deployed.",
+                    }
+            else:
+                response = {"status": "error", "message": "Unknown IPC action."}
+        except Exception as e:
+            response = {"status": "error", "message": f"Execution failed: {e}"}
+
+        writer.write(json.dumps(response).encode())
+        await writer.drain()
+        writer.close()
 
     async def start_dashboard_heartbeat(self):
         await self.wait_until_ready()
@@ -353,6 +441,7 @@ class MyBookBrrBot(commands.Bot):
                     async with session.post(
                         PORTAL_HEARTBEAT_URL,
                         json=payload,
+                        headers=get_portal_auth_headers(),
                         timeout=aiohttp.ClientTimeout(total=5),
                     ) as response:
                         if response.status != 200:
@@ -406,6 +495,37 @@ async def mbb_irc(interaction: discord.Interaction, action: app_commands.Choice[
     else:
         err = data.get("error") if isinstance(data, dict) else data
         await interaction.followup.send(f"Failed (HTTP {code}): {err}", ephemeral=True)
+
+
+@bot.tree.command(
+    name="mbb_unsatisfied_clear",
+    description="Clear MAM unsatisfied-limit lockout and optionally re-enable filters",
+)
+@app_commands.describe(reenable_filters="Re-enable filters that were auto-disabled (default: yes)")
+async def mbb_unsatisfied_clear(
+    interaction: discord.Interaction,
+    reenable_filters: Optional[bool] = True,
+):
+    if await deny_if_unauthorized(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    data, code = await mbb_request(
+        "POST",
+        "/filters/unsatisfied/clear",
+        json_data={"reenableFilters": bool(reenable_filters if reenable_filters is not None else True)},
+    )
+    if code not in (200, 201):
+        err = data.get("error") if isinstance(data, dict) else data
+        await interaction.followup.send(f"Failed (HTTP {code}): {err}", ephemeral=True)
+        return
+    reenabled = (data or {}).get("reenabled", 0) if isinstance(data, dict) else 0
+    enabled = (data or {}).get("enabledCount", "?") if isinstance(data, dict) else "?"
+    active = ((data or {}).get("unsatisfied") or {}).get("active") if isinstance(data, dict) else None
+    await interaction.followup.send(
+        f"Lockout cleared. Re-enabled {reenabled} filter(s); {enabled} enabled now"
+        f"{' · still active? ' + str(active) if active is not None else ''}.",
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(name="mbb_snatches", description="Recent MyBookBRR snatches")
@@ -552,35 +672,16 @@ async def mbb_setup_panel(interaction: discord.Interaction, target_channel: disc
     if await deny_if_unauthorized(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-    status_data, status_code = await mbb_request("GET", "/status")
-    filters_data, filters_code = await mbb_request("GET", "/filters")
+    embed, view, status_code = await build_control_panel()
     if status_code != 200:
         await interaction.followup.send(
             f"Cannot reach MyBookBRR API (status HTTP {status_code}). Check URL/API key.",
             ephemeral=True,
         )
         return
-    if filters_code != 200 or not isinstance(filters_data, list):
-        filters_data = []
-
-    view = MyBookControlView()
-    view.add_item(FilterDropdown(filters_data))
-    view.add_item(IrcButton("start"))
-    view.add_item(IrcButton("stop"))
-    view.add_item(RefreshButton())
-
-    embed = status_embed(status_data if isinstance(status_data, dict) else {})
-    embed.title = "MyBookBRR control panel"
-    lines = []
-    for f in filters_data[:12]:
-        icon = "🟢" if f.get("enabled") else "🔴"
-        lines.append(f"{icon} **{f.get('name')}** (`{f.get('id')}`)")
-    if lines:
-        embed.add_field(name="Filters", value="\n".join(lines)[:1024], inline=False)
-    embed.set_footer(text="Toggle filters · IRC start/stop · authorized role only")
-
     await target_channel.send(embed=embed, view=view)
     await interaction.followup.send(f"Control panel deployed to {target_channel.mention}.", ephemeral=True)
+
 
 
 def main():

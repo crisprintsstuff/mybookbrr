@@ -3,6 +3,7 @@ import { getSetting } from '../db/index.js';
 import { listWatches, saveWatch } from '../db/repos.js';
 import { processRelease, eventBus } from '../snatch/orchestrator.js';
 import { mamHitToRelease, mediaTypesToMainCats, watchMatchesRelease } from './matcher.js';
+import { alertMamSessionDead, alertWishlistError, isMamSessionError } from '../notify/alerts.js';
 import type { WishlistWatch } from '../types.js';
 
 let timer: NodeJS.Timeout | null = null;
@@ -74,6 +75,11 @@ export async function pollWishlistOnce(): Promise<void> {
         const msg = err instanceof Error ? err.message : String(err);
         saveWatch({ ...watch, lastRunAt: new Date().toISOString(), lastResult: `error: ${msg}` });
         eventBus.broadcast('wishlist_error', { watchId: watch.id, error: msg });
+        if (isMamSessionError(err)) {
+          void alertMamSessionDead(msg, 'Wishlist');
+        } else {
+          void alertWishlistError(watch.id, msg);
+        }
       }
       await sleep(1500);
     }

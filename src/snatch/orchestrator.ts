@@ -5,17 +5,21 @@ import { evaluateRelease } from '../filters/evaluator.js';
 import { downloadTorrent, isUnsatisfiedLimitError } from '../mam/client.js';
 import { addTorrentFile, writeWatchFolder } from '../clients/qbittorrent.js';
 import { notifyReleaseStream, notifySnatchError, notifySnatchSuccess } from '../notify/discord.js';
+import { alertMamSessionDead, isMamSessionError } from '../notify/alerts.js';
 import {
   bumpFilterSnatch,
+  clearSnatchBackoff,
+  getActiveSnatchBackoff,
   hasSeen,
   insertEvent,
   insertSnatch,
   listFilters,
   markSeen,
+  recordSnatchBackoff,
   snatchCount,
 } from '../db/repos.js';
 import { getSetting, setSetting } from '../db/index.js';
-import { handleUnsatisfiedLimit } from '../filters/unsatisfiedGuard.js';
+import { handleUnsatisfiedLimit, getUnsatisfiedStatus } from '../filters/unsatisfiedGuard.js';
 import type { FilterRule, Release } from '../types.js';
 
 /** Remove a staging .torrent after the client has accepted it (never the watch-folder copy). */
@@ -26,6 +30,14 @@ function removeStagingTorrent(filePath: string | undefined): void {
   } catch (err) {
     console.warn(`[Snatch] Failed to delete staging torrent ${filePath}:`, err);
   }
+}
+
+/** Rejects caused by lockout / no enabled filters must not permanently burn the tid. */
+function isTransientFilterReject(reasons: string[], lockoutActive: boolean): boolean {
+  if (lockoutActive) return true;
+  return reasons.some((r) =>
+    /no active filter|no enabled filter|filters were turned off|unsatisfied/i.test(r)
+  );
 }
 
 export interface ProcessOptions {
@@ -72,6 +84,25 @@ export async function processRelease(
     return { snatched: false, skipped: true, reason, release };
   }
 
+  if (!options.force) {
+    const backoff = getActiveSnatchBackoff(release.torrentId);
+    if (backoff) {
+      const reason = `Backoff until ${backoff.retryAfter} (attempt ${backoff.attempts}): ${backoff.lastError || 'previous snatch error'}`;
+      eventBus.broadcast('skip', { release, reason, backoff: true });
+      return { snatched: false, skipped: true, reason, release };
+    }
+  }
+
+  // During MAM unsatisfied lockout, do not evaluate/reject (would permanently markSeen).
+  // Manual/force snatches can still proceed.
+  const lockout = getUnsatisfiedStatus();
+  if (lockout.active && !options.force && !options.skipFilters) {
+    const reason =
+      'Skipped: MAM unsatisfied lockout active — clear the lockout before auto-snatching again';
+    eventBus.broadcast('skip', { release, reason, lockout: true });
+    return { snatched: false, skipped: true, reason, release };
+  }
+
   // Release stream: new IRC/wishlist announces (not manual one-clicks).
   if (!options.quietStream && release.source !== 'manual') {
     void notifyReleaseStream(release);
@@ -82,11 +113,15 @@ export async function processRelease(
 
   if (!options.skipFilters && !options.filterOverride) {
     if (!evaluation.matched || !evaluation.matchedFilter) {
-      markSeen(release.torrentId, release.title, release.source);
+      const transient = isTransientFilterReject(evaluation.reasons, lockout.active);
+      if (!transient) {
+        markSeen(release.torrentId, release.title, release.source);
+      }
       eventBus.broadcast('reject', {
         release,
         reasons: evaluation.reasons,
         evaluationLog: evaluation.evaluationLog,
+        markedSeen: !transient,
       });
       return {
         snatched: false,
@@ -122,6 +157,7 @@ export async function processRelease(
     removeStagingTorrent(dl.filePath);
 
     markSeen(release.torrentId, release.title, release.source);
+    clearSnatchBackoff(release.torrentId);
     if (matchedFilter) bumpFilterSnatch(matchedFilter.id);
 
     insertSnatch({
@@ -170,6 +206,9 @@ export async function processRelease(
         title: release.title,
       });
       const reason = `${message} ${guard.detail}`;
+      // Do not permanently markSeen — after lockout clears this tid should be retryable.
+      // Use backoff so wishlist/IRC does not hammer MAM while locked out.
+      const backoff = recordSnatchBackoff(release.torrentId, reason);
       insertSnatch({
         id: randomUUID(),
         torrentId: release.torrentId,
@@ -182,7 +221,7 @@ export async function processRelease(
         filterId: matchedFilter?.id || null,
         filterName: matchedFilter?.name || null,
         status: 'error',
-        error: reason,
+        error: `${reason} (backoff until ${backoff.retryAfter})`,
         clientMessage: null,
       });
       await notifySnatchError(release, matchedFilter?.name || null, reason);
@@ -194,7 +233,12 @@ export async function processRelease(
         title: release.title,
         detail: guard.detail,
       });
-      eventBus.broadcast('error', { release, error: reason, unsatisfiedLimit: true });
+      eventBus.broadcast('error', {
+        release,
+        error: reason,
+        unsatisfiedLimit: true,
+        backoffUntil: backoff.retryAfter,
+      });
       return {
         snatched: false,
         skipped: false,
@@ -204,6 +248,7 @@ export async function processRelease(
       };
     }
 
+    const backoff = recordSnatchBackoff(release.torrentId, message);
     insertSnatch({
       id: randomUUID(),
       torrentId: release.torrentId,
@@ -216,11 +261,19 @@ export async function processRelease(
       filterId: matchedFilter?.id || null,
       filterName: matchedFilter?.name || null,
       status: 'error',
-      error: message,
+      error: `${message} (backoff until ${backoff.retryAfter}, attempt ${backoff.attempts})`,
       clientMessage: null,
     });
     await notifySnatchError(release, matchedFilter?.name || null, message);
-    eventBus.broadcast('error', { release, error: message });
+    if (isMamSessionError(err)) {
+      void alertMamSessionDead(message, 'Snatch');
+    }
+    eventBus.broadcast('error', {
+      release,
+      error: message,
+      backoffUntil: backoff.retryAfter,
+      backoffAttempts: backoff.attempts,
+    });
     return {
       snatched: false,
       skipped: false,

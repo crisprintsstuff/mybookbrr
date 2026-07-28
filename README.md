@@ -112,10 +112,12 @@ Create keys under **API Keys** in the UI (admin). Raw key is shown once (`mbb_�
 
 | Method | Path | Scope |
 |---|---|---|
-| GET | `/api/v1/health` | none |
+| GET | `/api/v1/health` | none (liveness + `ready` / `checks`) |
 | GET | `/api/v1/status` | `status:read` |
 | GET | `/api/v1/settings/public` | `status:read` |
 | GET | `/api/v1/filters` | `filters:read` |
+| GET | `/api/v1/filters/unsatisfied` | `filters:read` |
+| POST | `/api/v1/filters/unsatisfied/clear` | `filters:write` |
 | POST/PUT/DELETE | `/api/v1/filters…` | `filters:write` |
 | GET | `/api/v1/wishlist` | `wishlist:read` |
 | POST… | `/api/v1/wishlist…` | `wishlist:write` |
@@ -168,5 +170,12 @@ Data lives in `DATA_DIR` (`./data/mybookbrr.db` by default). Snatches send the `
 ## Notes
 
 - IRC uses direct TLS (ports 6697/7000). ZNC is out of scope for v1.
+- Starting IRC persists `irc_enabled=true` and restores the listener after process restarts; Stop clears it.
+- `/api/v1/health` always reports process liveness (`ok`) plus readiness (`ready` / `checks`: MAM, IRC desired/joined, unsatisfied lockout).
+- Discord errors webhook receives cooldown-limited alerts for IRC auth/join failures, dead `mam_id`, and wishlist watch errors.
+- Failed snatches enter a per-torrent backoff (15m → 1h → 6h → 24h) so wishlist polling does not hammer MAM/qBit; use force snatch to bypass.
+- While an unsatisfied lockout is active, auto-snatch skips without permanently marking torrents as seen (so they can match again after clear).
+- SQLite is backed up daily into `DATA_DIR/backups/` (keeps 7 copies; `BACKUP_ENABLED=false` to disable).
+- Browser CORS is allowlisted (`CORS_ORIGINS`, defaults to `mybookbrr.boznetwork.com` + localhost).
 - Wishlist polls check due watches every 2 minutes; each watch has its own interval (default 30m).
 - Manual snatches skip filters (`skipFilters`) so search UI always downloads when you click Snatch.

@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS seen_torrents (
   seen_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS snatch_backoff (
+  torrent_id TEXT PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 1,
+  last_error TEXT NOT NULL DEFAULT '',
+  retry_after TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS snatches (
   id TEXT PRIMARY KEY,
   torrent_id TEXT NOT NULL,
@@ -159,16 +167,19 @@ export function getDownloadsDir(): string {
   return process.env.DOWNLOADS_DIR || path.resolve(path.dirname(__dirname), '..', 'downloads');
 }
 
+export function getDbPath(): string {
+  const dataDir = getDataDir();
+  const preferred = path.join(dataDir, 'mybookbrr.db');
+  const legacy = path.join(dataDir, 'newbookbot.db');
+  return fs.existsSync(preferred) ? preferred : fs.existsSync(legacy) ? legacy : preferred;
+}
+
 export function initDb(dbPath?: string): Db {
   const dataDir = getDataDir();
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(getDownloadsDir(), { recursive: true });
 
-  const preferred = path.join(dataDir, 'mybookbrr.db');
-  const legacy = path.join(dataDir, 'newbookbot.db');
-  const file =
-    dbPath ||
-    (fs.existsSync(preferred) ? preferred : fs.existsSync(legacy) ? legacy : preferred);
+  const file = dbPath || getDbPath();
   db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

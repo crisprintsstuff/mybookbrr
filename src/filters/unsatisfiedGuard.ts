@@ -1,5 +1,10 @@
 import { getSetting, setSettings } from '../db/index.js';
-import { disableAllEnabledFilters, enableFiltersByIds, listFilters } from '../db/repos.js';
+import {
+  clearAllSnatchBackoff,
+  disableAllEnabledFilters,
+  enableFiltersByIds,
+  listFilters,
+} from '../db/repos.js';
 import { notifySystemError } from '../notify/discord.js';
 
 export interface UnsatisfiedStatus {
@@ -75,6 +80,7 @@ export function clearUnsatisfiedLockout(reenableFilters: boolean): {
   cleared: boolean;
   reenabled: number;
   enabledCount: number;
+  clearedBackoffs: number;
 } {
   const ids = parseIds(getSetting('mam_unsatisfied_disabled_filters'));
   let reenabled = 0;
@@ -86,9 +92,11 @@ export function clearUnsatisfiedLockout(reenableFilters: boolean): {
     mam_unsatisfied_at: '',
     mam_unsatisfied_disabled_filters: '[]',
   });
+  const clearedBackoffs = clearAllSnatchBackoff();
   return {
     cleared: true,
     reenabled,
     enabledCount: listFilters().filter((f) => f.enabled).length,
+    clearedBackoffs,
   };
 }

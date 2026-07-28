@@ -284,6 +284,81 @@ export function hasSeen(torrentId: string): boolean {
   return Boolean(row);
 }
 
+export type SnatchBackoff = {
+  torrentId: string;
+  attempts: number;
+  lastError: string;
+  retryAfter: string;
+  updatedAt: string;
+};
+
+function backoffDelayMs(attempts: number): number {
+  // 15m → 1h → 6h → 24h (cap)
+  const minutes = [15, 60, 360, 1440];
+  const idx = Math.min(Math.max(attempts, 1), minutes.length) - 1;
+  const override = Number(process.env.SNATCH_ERROR_BACKOFF_MINUTES || 0);
+  if (override > 0 && attempts === 1) return override * 60 * 1000;
+  return minutes[idx] * 60 * 1000;
+}
+
+export function getSnatchBackoff(torrentId: string): SnatchBackoff | null {
+  const row = getDb()
+    .prepare('SELECT * FROM snatch_backoff WHERE torrent_id = ?')
+    .get(torrentId) as
+    | {
+        torrent_id: string;
+        attempts: number;
+        last_error: string;
+        retry_after: string;
+        updated_at: string;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    torrentId: row.torrent_id,
+    attempts: Number(row.attempts) || 1,
+    lastError: row.last_error || '',
+    retryAfter: row.retry_after,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Returns active backoff if retry_after is still in the future. */
+export function getActiveSnatchBackoff(torrentId: string): SnatchBackoff | null {
+  const row = getSnatchBackoff(torrentId);
+  if (!row) return null;
+  const until = Date.parse(row.retryAfter);
+  if (Number.isNaN(until) || until <= Date.now()) return null;
+  return row;
+}
+
+export function recordSnatchBackoff(torrentId: string, error: string): SnatchBackoff {
+  const existing = getSnatchBackoff(torrentId);
+  const attempts = (existing?.attempts || 0) + 1;
+  const retryAfter = new Date(Date.now() + backoffDelayMs(attempts)).toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO snatch_backoff (torrent_id, attempts, last_error, retry_after, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(torrent_id) DO UPDATE SET
+         attempts = excluded.attempts,
+         last_error = excluded.last_error,
+         retry_after = excluded.retry_after,
+         updated_at = datetime('now')`
+    )
+    .run(torrentId, attempts, (error || '').slice(0, 500), retryAfter);
+  return getSnatchBackoff(torrentId)!;
+}
+
+export function clearSnatchBackoff(torrentId: string): void {
+  getDb().prepare('DELETE FROM snatch_backoff WHERE torrent_id = ?').run(torrentId);
+}
+
+export function clearAllSnatchBackoff(): number {
+  const r = getDb().prepare('DELETE FROM snatch_backoff').run();
+  return Number(r.changes || 0);
+}
+
 export function insertSnatch(record: Omit<SnatchRecord, 'createdAt'> & { createdAt?: string }): void {
   getDb()
     .prepare(

@@ -14,16 +14,15 @@ import { getWishlistStatus, pollWishlistOnce, runWatchNow } from '../../wishlist
 import { eventBus, processRelease } from '../../snatch/orchestrator.js';
 import { ircListener } from '../../irc/listener.js';
 import { requireScope } from '../../auth/rbac.js';
-import { buildPublicSettings, buildStatusPayload } from '../statusHelpers.js';
+import { buildPublicSettings, buildStatusPayload, buildHealthPayload } from '../statusHelpers.js';
+import {
+  clearUnsatisfiedLockout,
+  getUnsatisfiedStatus,
+} from '../../filters/unsatisfiedGuard.js';
 import type { FilterRule, WishlistWatch } from '../../types.js';
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
-  app.get('/api/v1/health', async () => ({
-    ok: true,
-    service: 'mybookbrr',
-    version: 1,
-    time: new Date().toISOString(),
-  }));
+  app.get('/api/v1/health', async () => buildHealthPayload());
 
   app.get('/api/v1/status', async (req, reply) => {
     if (!requireScope(req, reply, 'status:read')) return;
@@ -56,6 +55,22 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     deleteFilter(id);
     return { ok: true };
+  });
+
+  app.get('/api/v1/filters/unsatisfied', async (req, reply) => {
+    if (!requireScope(req, reply, 'filters:read')) return;
+    return getUnsatisfiedStatus();
+  });
+
+  app.post('/api/v1/filters/unsatisfied/clear', async (req, reply) => {
+    if (!requireScope(req, reply, 'filters:write')) return;
+    const body = (req.body || {}) as { reenableFilters?: boolean };
+    const result = clearUnsatisfiedLockout(body.reenableFilters !== false);
+    eventBus.broadcast('unsatisfied_limit_cleared', {
+      at: new Date().toISOString(),
+      ...result,
+    });
+    return { ok: true, ...result, unsatisfied: getUnsatisfiedStatus() };
   });
 
   app.get('/api/v1/wishlist', async (req, reply) => {
