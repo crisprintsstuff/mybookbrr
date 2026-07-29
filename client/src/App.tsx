@@ -41,6 +41,23 @@ async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** BozNetwork Hub (control plane) — override with VITE_HUB_URL at build time if needed */
+const HUB_URL = (import.meta.env.VITE_HUB_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://portal.boznetwork.com';
+
+function BackToHubLink({ className = '' }: { className?: string }) {
+  return (
+    <a
+      className={className}
+      href={HUB_URL}
+      title="Open BozNetwork Hub"
+    >
+      <i className="fa-solid fa-arrow-left" />
+      <span>Back to Hub</span>
+    </a>
+  );
+}
+
 function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -128,6 +145,9 @@ function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
         {error && <div className="error">{error}</div>}
+        <div className="login-hub-link">
+          <BackToHubLink className="hub-link" />
+        </div>
       </form>
     </div>
   );
@@ -2245,6 +2265,7 @@ export default function App() {
           <div className="sidebar-user">
             Signed in as <strong>{user.username}</strong> · {user.role}
           </div>
+          <BackToHubLink className="btn secondary hub-back-btn" />
           <button
             className="btn secondary"
             style={{ width: '100%' }}
@@ -2263,6 +2284,7 @@ export default function App() {
             <p className="page-sub">{pageMeta.subtitle}</p>
           </div>
           <div className="header-right">
+            <BackToHubLink className="btn secondary hub-back-header" />
             <div className="status-indicator" title="Application online">
               <span className="status-dot green animate-pulse" />
               <span>Engine Active</span>

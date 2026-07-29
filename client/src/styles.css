@@ -218,6 +218,46 @@ a {
   padding: 0 4px;
 }
 
+/* Link back to BozNetwork Hub control plane */
+.hub-back-btn,
+.hub-back-header,
+a.hub-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.hub-back-btn {
+  width: 100%;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent-blue);
+}
+.hub-back-btn:hover {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+.hub-back-header {
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+.login-hub-link {
+  margin-top: 16px;
+  text-align: center;
+}
+a.hub-link {
+  color: var(--accent-blue);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+a.hub-link:hover {
+  color: #93c5fd;
+  text-decoration: underline;
+}
+
 .sidebar-user strong {
   color: var(--text-secondary);
   font-weight: 500;
