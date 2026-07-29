@@ -57,7 +57,113 @@ function redirectLoginError(reply: import('fastify').FastifyReply, code: string)
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/auth/providers', async () => {
-    return { discord: isDiscordOAuthConfigured() };
+    return {
+      discord: isDiscordOAuthConfigured(),
+      hub_sso: Boolean(
+        (process.env.SSO_SHARED_SECRET || '').trim() &&
+          (process.env.HUB_SSO_REDEEM_URL || '').trim()
+      ),
+    };
+  });
+
+  /**
+   * One-time ticket SSO from BozNetwork Hub.
+   * GET /api/auth/sso?ticket=...
+   * Redeems ticket at Hub, creates/links local user, sets mbb_session cookie.
+   */
+  app.get('/api/auth/sso', async (req, reply) => {
+    const secret = (process.env.SSO_SHARED_SECRET || '').trim();
+    const redeemUrl = (
+      process.env.HUB_SSO_REDEEM_URL || 'http://127.0.0.1:5000/api/v1/sso/redeem'
+    ).trim();
+    if (!secret || !redeemUrl) {
+      return reply.redirect('/?sso_error=not_configured');
+    }
+
+    const q = req.query as { ticket?: string };
+    const ticket = (q.ticket || '').trim();
+    if (!ticket) return reply.redirect('/?sso_error=missing_ticket');
+
+    let claims: {
+      username?: string;
+      display_name?: string;
+      discord_id?: string | null;
+      role?: UserRole;
+      target?: string;
+    };
+    try {
+      const res = await fetch(redeemUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-SSO-Secret': secret,
+        },
+        body: JSON.stringify({ ticket, target: 'mybookbrr' }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        status?: string;
+        message?: string;
+        claims?: typeof claims;
+      };
+      if (!res.ok || body.status !== 'success' || !body.claims) {
+        req.log.warn({ status: res.status, body }, 'Hub SSO redeem failed');
+        return reply.redirect(
+          `/?sso_error=${encodeURIComponent(body.message || 'redeem_failed')}`
+        );
+      }
+      claims = body.claims;
+    } catch (err) {
+      req.log.error({ err }, 'Hub SSO redeem request failed');
+      return reply.redirect('/?sso_error=redeem_unreachable');
+    }
+
+    const role: UserRole = claims.role === 'viewer' ? 'viewer' : 'admin';
+    const discordId = claims.discord_id ? String(claims.discord_id) : null;
+    let user = discordId ? getUserByDiscordId(discordId) : null;
+
+    if (!user && claims.username) {
+      user = getUserByUsername(String(claims.username));
+      if (user && discordId && !user.discordId) {
+        user = linkDiscordId(user.id, discordId) || user;
+      }
+    }
+
+    if (!user) {
+      const base =
+        (claims.username || claims.display_name || 'hub_user')
+          .replace(/[^a-zA-Z0-9_\-.]/g, '')
+          .slice(0, 24) || 'hub_user';
+      const username = ensureUniqueUsername(base);
+      user = createUser({
+        username,
+        passwordHash: DISCORD_PASSWORD_SENTINEL,
+        role,
+        mustChangePassword: false,
+        discordId,
+      });
+    } else {
+      // Keep role in sync with Hub permissions (admin/control → admin)
+      if (user.role !== role) {
+        updateUser(user.id, { role });
+        user = getUserById(user.id) || user;
+      }
+    }
+
+    if (!user.enabled) {
+      return reply.redirect('/?sso_error=disabled');
+    }
+
+    const { token, expiresAt } = createUserSession(user, {
+      ip: clientIp(req),
+      userAgent: String(req.headers['user-agent'] || ''),
+    });
+    setSessionCookie(reply, token, expiresAt);
+    req.log.info(
+      { userId: user.id, username: user.username, role: user.role, via: 'hub_sso' },
+      'SSO login from Hub'
+    );
+    return reply.redirect('/');
   });
 
   app.get('/api/auth/discord', async (req, reply) => {
