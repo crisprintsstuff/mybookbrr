@@ -87,6 +87,10 @@ export function enrichFilterWithLimit(filter: FilterRule, now = Date.now()): Fil
   };
 }
 
+/**
+ * Filters that are **operationally** at their download cap (enabled only).
+ * Disabled filters keep historical usage for the UI, but must not drive banners/alerts.
+ */
 export function listFiltersAtLimit(
   filters: FilterRule[],
   now = Date.now()
@@ -101,6 +105,7 @@ export function listFiltersAtLimit(
 }> {
   return filters
     .map((f) => {
+      if (!f.enabled) return null;
       const u = getLimitUsage(f, now);
       if (!u.atLimit) return null;
       return {
@@ -110,7 +115,7 @@ export function listFiltersAtLimit(
         max: u.max,
         period: u.period,
         resetsAt: u.resetsAt,
-        enabled: f.enabled,
+        enabled: true,
       };
     })
     .filter((x): x is NonNullable<typeof x> => x != null);

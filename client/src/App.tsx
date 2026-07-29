@@ -1178,8 +1178,9 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
     return `${h}h ${m}m remaining`;
   }
 
+  // Only enabled filters drive the banner — disabled caps are not blocking snatches.
   const atLimitFilters = filters
-    .filter((f) => f.atLimit)
+    .filter((f) => f.atLimit && f.enabled !== false)
     .map((f) => ({
       id: f.id,
       name: f.name,
