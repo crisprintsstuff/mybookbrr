@@ -14,6 +14,7 @@ import { getWishlistStatus, pollWishlistOnce, runWatchNow } from '../../wishlist
 import { eventBus, processRelease } from '../../snatch/orchestrator.js';
 import { ircListener } from '../../irc/listener.js';
 import { requireScope } from '../../auth/rbac.js';
+import { enrichFilterWithLimit } from '../../filters/limitUsage.js';
 import { buildPublicSettings, buildStatusPayload, buildHealthPayload } from '../statusHelpers.js';
 import {
   clearUnsatisfiedLockout,
@@ -41,7 +42,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/v1/filters', async (req, reply) => {
     if (!requireScope(req, reply, 'filters:read')) return;
-    return listFilters();
+    return listFilters().map((f) => enrichFilterWithLimit(f));
   });
 
   app.post('/api/v1/filters', async (req, reply) => {

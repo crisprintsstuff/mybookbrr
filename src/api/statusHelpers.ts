@@ -1,11 +1,13 @@
 import { getSetting } from '../db/index.js';
-import { snatchCount } from '../db/repos.js';
+import { listFilters, snatchCount } from '../db/repos.js';
+import { getQbitHealth, type QbitHealth } from '../clients/qbitHealth.js';
 import { getTimedLockoutStatus } from '../filters/timedLockout.js';
 import { getUnsatisfiedStatus } from '../filters/unsatisfiedGuard.js';
+import { listFiltersAtLimit } from '../filters/limitUsage.js';
 import { ircListener } from '../irc/listener.js';
 import { getWishlistStatus } from '../wishlist/poller.js';
 
-export function buildStatusPayload() {
+export async function buildStatusPayload() {
   let lastAnnounce: unknown = null;
   try {
     const raw = getSetting('last_announce');
@@ -14,6 +16,10 @@ export function buildStatusPayload() {
     lastAnnounce = null;
   }
   const ircDesired = getSetting('irc_enabled') === 'true';
+  const filters = listFilters();
+  const filtersAtLimit = listFiltersAtLimit(filters);
+  const qbit = await getQbitHealth();
+
   return {
     irc: ircListener.getStatus(),
     ircDesired,
@@ -23,6 +29,9 @@ export function buildStatusPayload() {
     mamConfigured: Boolean(getSetting('mam_id')),
     unsatisfied: getUnsatisfiedStatus(),
     timedLockout: getTimedLockoutStatus(),
+    filtersAtLimit,
+    qbit,
+    downloadClient: getSetting('download_client') || 'qbittorrent',
   };
 }
 
@@ -33,11 +42,14 @@ export type HealthChecks = {
   unsatisfied: boolean;
   timedLockout: boolean;
   wishlistEnabled: boolean;
+  qbitOk: boolean | null;
+  qbitApplicable: boolean;
 };
 
 /** Operator-facing readiness: live snatching path healthy when desired. */
-export function buildHealthPayload() {
-  const status = buildStatusPayload();
+export async function buildHealthPayload() {
+  const status = await buildStatusPayload();
+  const qbit = status.qbit as QbitHealth;
   const checks: HealthChecks = {
     mamConfigured: status.mamConfigured,
     ircDesired: status.ircDesired,
@@ -45,14 +57,19 @@ export function buildHealthPayload() {
     unsatisfied: Boolean(status.unsatisfied?.active),
     timedLockout: Boolean(status.timedLockout?.active),
     wishlistEnabled: status.wishlist?.enabled !== false,
+    qbitOk: qbit.ok,
+    qbitApplicable: qbit.applicable,
   };
 
-  // Ready when MAM is configured, not lockout-paused, and IRC is joined if it should be running.
+  // Ready when MAM is configured, not lockout-paused, IRC joined if desired,
+  // and qBit reachable when that is the download client.
+  const qbitReady = !checks.qbitApplicable || checks.qbitOk === true;
   const ready =
     checks.mamConfigured &&
     !checks.unsatisfied &&
     !checks.timedLockout &&
-    (!checks.ircDesired || checks.ircJoined);
+    (!checks.ircDesired || checks.ircJoined) &&
+    qbitReady;
 
   return {
     ok: true,
@@ -60,6 +77,8 @@ export function buildHealthPayload() {
     service: 'mybookbrr',
     version: 1,
     checks,
+    qbit,
+    filtersAtLimit: status.filtersAtLimit,
     time: new Date().toISOString(),
   };
 }

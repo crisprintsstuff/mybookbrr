@@ -28,6 +28,7 @@ import {
   setTimedLockout,
 } from '../filters/timedLockout.js';
 import { requireRole, requireUser } from '../auth/rbac.js';
+import { enrichFilterWithLimit } from '../filters/limitUsage.js';
 import { buildStatusPayload } from './statusHelpers.js';
 import type { FilterRule, WishlistWatch } from '../types.js';
 
@@ -160,7 +161,7 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/filters', async (req, reply) => {
     if (!requireUser(req, reply)) return;
-    return listFilters();
+    return listFilters().map((f) => enrichFilterWithLimit(f));
   });
 
   app.post('/api/filters', async (req, reply) => {

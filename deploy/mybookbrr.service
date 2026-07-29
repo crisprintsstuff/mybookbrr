@@ -8,10 +8,16 @@ WorkingDirectory=/home/cris/newprojects/mybookbrr
 ExecStart=/usr/bin/node dist/server.js
 Restart=always
 RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
 Environment=NODE_ENV=production
 EnvironmentFile=-/home/cris/newprojects/mybookbrr/.env
 StandardOutput=append:/home/cris/newprojects/mybookbrr/data/mybookbrr.log
 StandardError=append:/home/cris/newprojects/mybookbrr/data/mybookbrr.log
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65535
+MemoryMax=512M
 
 [Install]
 WantedBy=default.target

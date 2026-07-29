@@ -197,6 +197,36 @@ export async function notifySystemError(event: string, message: string, componen
   }
 }
 
+/** Filter hit its download period cap — operator-facing (errors webhook). */
+export async function notifyFilterLimitHit(
+  filterName: string,
+  used: number,
+  max: number,
+  period: string,
+  resetsAt: string | null
+): Promise<void> {
+  const webhook = webhookSetting('discord_webhook_errors', 'discord_webhook_url');
+  if (!webhook) return;
+  try {
+    await sendDiscordWebhook(
+      webhook,
+      {
+        title: `Filter at limit: ${filterName}`,
+        color: 0xc4783a,
+        description: 'Auto-snatch will skip matches for this filter until the period window rolls.',
+        fields: [
+          field('Usage', `${used}/${max} ${period}`),
+          field('Resets', resetsAt || 'when oldest snatch ages out of the window', false),
+        ],
+        footer: { text: 'MyBookBRR • Filter limit' },
+      },
+      'MyBookBRR Filter Limit'
+    );
+  } catch (err) {
+    console.warn('[Discord] filter limit webhook failed:', err instanceof Error ? err.message : err);
+  }
+}
+
 /** @deprecated use notifySnatchSuccess / notifySnatchError */
 export async function notifySnatch(
   release: Release,

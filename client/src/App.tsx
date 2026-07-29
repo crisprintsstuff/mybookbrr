@@ -441,6 +441,39 @@ function ApiKeysPage() {
   );
 }
 
+function formatResetsInClient(resetsAt: string | null | undefined): string {
+  if (!resetsAt) return '';
+  const ms = Math.max(0, new Date(resetsAt).getTime() - Date.now());
+  const hours = Math.floor(ms / (60 * 60 * 1000));
+  const mins = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+  if (hours >= 48) return `~${Math.floor(hours / 24)}d`;
+  if (hours > 0) return `~${hours}h ${mins}m`;
+  return `~${mins}m`;
+}
+
+function FilterLimitBanner({ filtersAtLimit }: { filtersAtLimit?: Array<any> }) {
+  if (!filtersAtLimit?.length) return null;
+  return (
+    <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--accent-orange, #c4783a)' }}>
+      <h3 style={{ color: 'var(--accent-orange, #c4783a)' }}>
+        <i className="fa-solid fa-gauge-high" /> Filter download limit reached
+      </h3>
+      <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.2rem' }}>
+        {filtersAtLimit.map((f) => (
+          <li key={f.id || f.name} className="detail">
+            <strong>{f.name}</strong> at {f.used}/{f.max} {f.period}
+            {f.resetsAt ? ` · resets ${formatResetsInClient(f.resetsAt)}` : ''}
+            {f.enabled === false ? ' (disabled)' : ''}
+          </li>
+        ))}
+      </ul>
+      <p className="detail" style={{ marginTop: '0.5rem' }}>
+        Matching announces are rejected until the period window rolls, or raise max downloads under Filters.
+      </p>
+    </div>
+  );
+}
+
 function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const [status, setStatus] = useState<any>(null);
   const [actionMsg, setActionMsg] = useState('');
@@ -477,6 +510,14 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
 
   if (!status) return <p className="page-sub">Loading…</p>;
 
+  const qbit = status.qbit;
+  const qbitIcon =
+    !qbit?.applicable ? 'orange' : qbit.ok ? 'green' : 'red';
+  const qbitBadge =
+    !qbit?.applicable ? 'warn' : qbit.ok ? 'ok' : 'err';
+  const qbitLabel =
+    !qbit?.applicable ? 'watch folder' : qbit.ok ? qbit.version || 'online' : 'down';
+
   return (
     <>
       {status.unsatisfied?.active && (
@@ -499,6 +540,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           </p>
         </div>
       )}
+      <FilterLimitBanner filtersAtLimit={status.filtersAtLimit} />
       <div className="grid stats">
         <div className="card metric-card">
           <div className="card-icon blue">
@@ -560,6 +602,18 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
               </span>
             </h3>
             <div className="sub-label">session cookie</div>
+          </div>
+        </div>
+        <div className="card metric-card">
+          <div className={`card-icon ${qbitIcon}`}>
+            <i className="fa-solid fa-hard-drive" />
+          </div>
+          <div className="card-data">
+            <span className="label">qBittorrent</span>
+            <h3>
+              <span className={`badge ${qbitBadge}`}>{qbitLabel}</span>
+            </h3>
+            <div className="sub-label">{qbit?.message || status.downloadClient || '—'}</div>
           </div>
         </div>
       </div>
@@ -689,16 +743,42 @@ function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
   return (
     <>
       {actionMsg && <div className={actionOk ? 'okmsg' : 'error'} style={{ marginBottom: '0.75rem' }}>{actionMsg}</div>}
+      <p className="page-sub" style={{ marginBottom: '0.75rem' }}>
+        Expand an announce for per-filter pass/fail reasons (limits, format, author, already seen, etc.).
+      </p>
       <div className="feed">
         {items.length === 0 && <div className="card">Waiting for events…</div>}
         {[...items].reverse().map((item, i) => {
           const r = item.payload?.release;
           const key = `${item.type}-${item.createdAt || ''}-${r?.torrentId || i}-${i}`;
           const open = openKey === key;
+          const outcome = item.payload?.outcome as string | undefined;
+          const outcomeLabel =
+            item.payload?.outcomeLabel ||
+            (item.type === 'snatch'
+              ? 'Snatched'
+              : item.type === 'reject'
+                ? 'Rejected'
+                : item.type === 'skip'
+                  ? 'Skipped'
+                  : item.type === 'error'
+                    ? 'Error'
+                    : item.type);
+          const badgeClass =
+            item.type === 'snatch' || outcome === 'snatched'
+              ? 'ok'
+              : outcome === 'already_seen'
+                ? ''
+                : outcome === 'limit' || item.type === 'reject' || item.type === 'error'
+                  ? 'warn'
+                  : item.type === 'skip'
+                    ? 'warn'
+                    : '';
           return (
             <div className="feed-item" key={key}>
               <div className="meta">
-                <span className={`badge ${item.type === 'snatch' ? 'ok' : item.type === 'error' || item.type === 'reject' ? 'warn' : ''}`}>
+                <span className={`badge ${badgeClass}`}>{outcomeLabel}</span>{' '}
+                <span className="detail" style={{ display: 'inline' }}>
                   {item.type}
                 </span>{' '}
                 {item.createdAt || ''}
@@ -714,6 +794,9 @@ function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
                   ) : null}
                   {item.payload?.clientMessage ? <> · {item.payload.clientMessage}</> : null}
                   {item.payload?.error ? <> · {item.payload.error}</> : null}
+                  {item.payload?.atLimitFilters?.length ? (
+                    <> · at limit: {(item.payload.atLimitFilters as string[]).join(', ')}</>
+                  ) : null}
                 </div>
               )}
               {r && (
@@ -759,6 +842,12 @@ function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
                       {[r.freeleech ? 'Freeleech' : null, r.vip ? 'VIP' : null].filter(Boolean).join(' · ') || '—'}
                     </div>
                   </div>
+                  {item.payload?.reason && !item.payload?.reasons?.length ? (
+                    <div className="feed-details-block">
+                      <span>Why</span>
+                      <div>{item.payload.reason}</div>
+                    </div>
+                  ) : null}
                   {item.payload?.reasons?.length ? (
                     <div className="feed-details-block">
                       <span>Filter notes</span>
@@ -767,10 +856,14 @@ function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
                   ) : null}
                   {item.payload?.evaluationLog?.length ? (
                     <div className="feed-details-block">
-                      <span>Evaluation</span>
+                      <span>Per-filter evaluation</span>
                       <pre>
                         {item.payload.evaluationLog
-                          .map((e: any) => `${e.filterName}: ${(e.failures || []).join('; ') || 'ok'}`)
+                          .map((e: any) => {
+                            const fails = e.failures || [];
+                            if (!fails.length) return `✓ ${e.filterName}: ok`;
+                            return `✗ ${e.filterName}: ${fails.join('; ')}`;
+                          })
                           .join('\n')}
                       </pre>
                     </div>
@@ -1085,6 +1178,18 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
     return `${h}h ${m}m remaining`;
   }
 
+  const atLimitFilters = filters
+    .filter((f) => f.atLimit)
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      used: f.limitUsed ?? f.snatchCount,
+      max: f.limitMax ?? f.maxDownloads,
+      period: f.limitPeriod,
+      resetsAt: f.resetsAt,
+      enabled: f.enabled,
+    }));
+
   return (
     <>
       {unsatisfied?.active && (
@@ -1104,6 +1209,7 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
           )}
         </div>
       )}
+      <FilterLimitBanner filtersAtLimit={atLimitFilters} />
       {timedLockout?.active && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--accent-orange, #c4783a)' }}>
           <h3 style={{ color: 'var(--accent-orange, #c4783a)' }}>Manual MAM lockout timer</h3>
@@ -1427,14 +1533,20 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
                     </label>
                   </td>
                   <td>
-                    {f.name}
+                    {f.name}{' '}
+                    {f.limitPeriod && f.limitPeriod !== 'unlimited' && (f.limitMax > 0 || f.maxDownloads > 0) ? (
+                      <span className={`badge ${f.atLimit ? 'err' : (f.limitUsed ?? 0) >= (f.limitMax || f.maxDownloads) * 0.8 ? 'warn' : 'ok'}`}>
+                        {f.limitUsed ?? 0}/{f.limitMax || f.maxDownloads} {f.limitPeriod}
+                        {f.atLimit && f.resetsAt ? ` · resets ${formatResetsInClient(f.resetsAt)}` : ''}
+                      </span>
+                    ) : null}
                     <div className="detail">
                       {(f.formats || []).join(', ') || 'formats?'}
                       {' · '}
                       {(f.authors || []).join(', ') || (f.matchAllReleases ? 'catch-all' : '—')}
                       {' · '}
                       {f.limitPeriod && f.limitPeriod !== 'unlimited'
-                        ? `limit ${f.maxDownloads || 0}/${f.limitPeriod}`
+                        ? `cap ${f.limitMax || f.maxDownloads || 0}/${f.limitPeriod} (lifetime snatches ${f.snatchCount || 0})`
                         : 'no limit'}
                     </div>
                   </td>

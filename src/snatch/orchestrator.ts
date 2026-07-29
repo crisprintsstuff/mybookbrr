@@ -2,9 +2,19 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { evaluateRelease } from '../filters/evaluator.js';
+import {
+  formatResetsIn,
+  getLimitUsage,
+  shouldNotifyLimitHit,
+} from '../filters/limitUsage.js';
 import { downloadTorrent, isUnsatisfiedLimitError } from '../mam/client.js';
 import { addTorrentFile, writeWatchFolder } from '../clients/qbittorrent.js';
-import { notifyReleaseStream, notifySnatchError, notifySnatchSuccess } from '../notify/discord.js';
+import {
+  notifyFilterLimitHit,
+  notifyReleaseStream,
+  notifySnatchError,
+  notifySnatchSuccess,
+} from '../notify/discord.js';
 import { alertMamSessionDead, isMamSessionError } from '../notify/alerts.js';
 import {
   bumpFilterSnatch,
@@ -22,6 +32,19 @@ import { getSetting, setSetting } from '../db/index.js';
 import { handleUnsatisfiedLimit, getUnsatisfiedStatus } from '../filters/unsatisfiedGuard.js';
 import { getTimedLockoutStatus } from '../filters/timedLockout.js';
 import type { FilterRule, Release } from '../types.js';
+
+function maybeNotifyFiltersAtLimit(filters: FilterRule[]): void {
+  for (const filter of filters) {
+    if (!filter.enabled) continue;
+    const usage = getLimitUsage(filter);
+    if (!usage.atLimit) continue;
+    if (!shouldNotifyLimitHit(filter.id)) continue;
+    const resetsLabel = usage.resetsAt
+      ? `${usage.resetsAt} (${formatResetsIn(usage.resetsAtMs)})`
+      : null;
+    void notifyFilterLimitHit(filter.name, usage.used, usage.max, usage.period, resetsLabel);
+  }
+}
 
 /** Remove a staging .torrent after the client has accepted it (never the watch-folder copy). */
 function removeStagingTorrent(filePath: string | undefined): void {
@@ -81,7 +104,12 @@ export async function processRelease(
 
   if (!options.force && hasSeen(release.torrentId)) {
     const reason = `Already seen torrent ${release.torrentId}`;
-    eventBus.broadcast('skip', { release, reason });
+    eventBus.broadcast('skip', {
+      release,
+      reason,
+      outcome: 'already_seen',
+      outcomeLabel: 'Already seen',
+    });
     return { snatched: false, skipped: true, reason, release };
   }
 
@@ -89,7 +117,13 @@ export async function processRelease(
     const backoff = getActiveSnatchBackoff(release.torrentId);
     if (backoff) {
       const reason = `Backoff until ${backoff.retryAfter} (attempt ${backoff.attempts}): ${backoff.lastError || 'previous snatch error'}`;
-      eventBus.broadcast('skip', { release, reason, backoff: true });
+      eventBus.broadcast('skip', {
+        release,
+        reason,
+        backoff: true,
+        outcome: 'backoff',
+        outcomeLabel: 'Backoff',
+      });
       return { snatched: false, skipped: true, reason, release };
     }
   }
@@ -109,6 +143,8 @@ export async function processRelease(
       lockout: true,
       timedLockout: timed.active,
       unsatisfiedLockout: unsatisfied.active,
+      outcome: 'lockout',
+      outcomeLabel: 'Lockout skip',
     });
     return { snatched: false, skipped: true, reason, release };
   }
@@ -120,19 +156,40 @@ export async function processRelease(
   }
 
   let matchedFilter: FilterRule | null = options.filterOverride || null;
-  let evaluation = evaluateRelease(release, listFilters());
+  const allFilters = listFilters();
+  let evaluation = evaluateRelease(release, allFilters);
 
   if (!options.skipFilters && !options.filterOverride) {
     if (!evaluation.matched || !evaluation.matchedFilter) {
+      const limitOnlyReject = evaluation.evaluationLog.some((e) =>
+        (e.failures || []).some((f) => /download limit reached/i.test(f))
+      );
+      // Notify when any enabled filter is at cap (cooldown inside helper).
+      if (limitOnlyReject || evaluation.evaluationLog.some((e) => /limit reached/i.test((e.failures || []).join(' ')))) {
+        maybeNotifyFiltersAtLimit(allFilters);
+      }
       const transient = isTransientFilterReject(evaluation.reasons, lockout.active);
       if (!transient) {
         markSeen(release.torrentId, release.title, release.source);
       }
+      const atLimitFilters = evaluation.evaluationLog
+        .filter((e) => (e.failures || []).some((f) => /download limit reached/i.test(f)))
+        .map((e) => e.filterName);
+      const outcome =
+        atLimitFilters.length > 0 &&
+        evaluation.evaluationLog.every((e) =>
+          (e.failures || []).every((f) => /download limit reached/i.test(f))
+        )
+          ? 'limit'
+          : 'reject';
       eventBus.broadcast('reject', {
         release,
         reasons: evaluation.reasons,
         evaluationLog: evaluation.evaluationLog,
         markedSeen: !transient,
+        outcome,
+        outcomeLabel: outcome === 'limit' ? 'At filter limit' : 'Rejected',
+        atLimitFilters,
       });
       return {
         snatched: false,
@@ -169,7 +226,12 @@ export async function processRelease(
 
     markSeen(release.torrentId, release.title, release.source);
     clearSnatchBackoff(release.torrentId);
-    if (matchedFilter) bumpFilterSnatch(matchedFilter.id);
+    if (matchedFilter) {
+      bumpFilterSnatch(matchedFilter.id);
+      // Fresh read after bump — notify if this snatch filled the period cap.
+      const after = listFilters().find((f) => f.id === matchedFilter!.id);
+      if (after) maybeNotifyFiltersAtLimit([after]);
+    }
 
     insertSnatch({
       id: randomUUID(),
@@ -199,6 +261,9 @@ export async function processRelease(
       release,
       filter: matchedFilter?.name || null,
       clientMessage,
+      outcome: 'snatched',
+      outcomeLabel: 'Snatched',
+      evaluationLog: evaluation?.evaluationLog,
     });
 
     return {
