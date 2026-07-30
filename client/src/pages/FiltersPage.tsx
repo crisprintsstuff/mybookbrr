@@ -2,6 +2,35 @@ import { useEffect, useState } from 'react';
 import { api, formatResetsInClient } from '../lib/api';
 import { FilterLimitBanner } from '../components/FilterLimitBanner';
 
+const MAM_EBOOK_FORMATS = ['EPUB', 'AZW3', 'MOBI', 'PDF', 'CBR', 'CBZ'] as const;
+const MAM_AUDIO_FORMATS = ['M4B', 'MP3', 'FLAC', 'AAC', 'M4A', 'OGG', 'WMA'] as const;
+const MAM_FORMATS = [...MAM_EBOOK_FORMATS, ...MAM_AUDIO_FORMATS] as const;
+
+const emptyFilter = {
+  name: '',
+  enabled: true,
+  priority: 5,
+  matchAllReleases: false,
+  limitPeriod: 'unlimited' as const,
+  maxDownloads: 0,
+  mediaTypes: ['eBook', 'Audiobook'] as string[],
+  formats: ['EPUB', 'M4B'] as string[],
+  authors: [] as string[],
+  excludeAuthors: [] as string[],
+  narrators: [] as string[],
+  series: [] as string[],
+  titlePattern: '',
+  minBitrate: 0,
+  minSizeMB: 0,
+  maxSizeMB: 50000,
+  freeleechOnly: false,
+  vipOnly: false,
+  clientType: 'qbittorrent' as const,
+  clientCategory: 'books',
+  savePath: '',
+  discordWebhookUrl: '',
+};
+
 export function normalizeFormats(formats: unknown): string[] {
   if (Array.isArray(formats)) return formats.map(String);
   if (typeof formats === 'string') {

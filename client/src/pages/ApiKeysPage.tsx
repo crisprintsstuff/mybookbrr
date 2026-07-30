@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
+const SCOPE_OPTIONS = [
+  'status:read',
+  'filters:read',
+  'filters:write',
+  'wishlist:read',
+  'wishlist:write',
+  'history:read',
+  'events:read',
+  'irc:control',
+  'snatch:write',
+] as const;
+
 export function ApiKeysPage() {
   const [keys, setKeys] = useState<any[]>([]);
   const [name, setName] = useState('');

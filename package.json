@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && npm run build:client",
+    "build": "tsc && tsc -p client --noEmit && npm run build:client",
     "build:client": "vite build --config client/vite.config.ts",
     "start": "node dist/server.js",
     "dev:client": "vite --config client/vite.config.ts",

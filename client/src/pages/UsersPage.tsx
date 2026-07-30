@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, type AuthUser } from '../lib/api';
 
 export function UsersPage() {
   const [users, setUsers] = useState<AuthUser[]>([]);
