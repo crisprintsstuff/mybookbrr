@@ -14,6 +14,7 @@ import { startWishlistPoller } from './wishlist/poller.js';
 import { eventBus, processRelease } from './snatch/orchestrator.js';
 import { alertIrcFailure } from './notify/alerts.js';
 import { startBackupScheduler } from './db/backup.js';
+import { startMaintenanceScheduler } from './db/maintenance.js';
 import { startTimedLockoutScheduler } from './filters/timedLockout.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -93,6 +94,7 @@ async function main() {
 
   startWishlistPoller();
   startBackupScheduler();
+  startMaintenanceScheduler();
   startTimedLockoutScheduler();
 
   await app.listen({ port: PORT, host: HOST });
