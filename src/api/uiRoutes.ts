@@ -11,6 +11,7 @@ import {
   saveFilter,
   saveWatch,
 } from '../db/repos.js';
+
 import { searchTorrents, testMamSession } from '../mam/client.js';
 import { mamHitToRelease } from '../wishlist/matcher.js';
 import { getWishlistStatus, pollWishlistOnce, runWatchNow } from '../wishlist/poller.js';
@@ -29,6 +30,7 @@ import {
 } from '../filters/timedLockout.js';
 import { requireRole, requireUser } from '../auth/rbac.js';
 import { runDatabaseBackup } from '../db/backup.js';
+import { dryRunFilter } from '../filters/dryRun.js';
 import { enrichFilterWithLimit } from '../filters/limitUsage.js';
 import { buildStatusPayload } from './statusHelpers.js';
 import type { FilterRule, WishlistWatch } from '../types.js';
@@ -199,6 +201,18 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     deleteFilter(id);
     return { ok: true };
+  });
+
+  app.post('/api/filters/:id/dry-run', async (req, reply) => {
+    if (!requireUser(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const filter = getFilter(id);
+    if (!filter) return reply.code(404).send({ error: 'Filter not found' });
+    const body = (req.body || {}) as { limit?: number; ignoreLimits?: boolean };
+    return dryRunFilter(filter, {
+      limit: body.limit,
+      ignoreLimits: body.ignoreLimits !== false,
+    });
   });
 
   app.get('/api/filters/unsatisfied', async (req, reply) => {

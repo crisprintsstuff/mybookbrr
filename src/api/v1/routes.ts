@@ -3,6 +3,7 @@ import { setSettings } from '../../db/index.js';
 import {
   deleteFilter,
   deleteWatch,
+  getFilter,
   listEvents,
   listFilters,
   listSnatches,
@@ -10,6 +11,7 @@ import {
   saveFilter,
   saveWatch,
 } from '../../db/repos.js';
+import { dryRunFilter } from '../../filters/dryRun.js';
 import { getWishlistStatus, pollWishlistOnce, runWatchNow } from '../../wishlist/poller.js';
 import { eventBus, processRelease } from '../../snatch/orchestrator.js';
 import { ircListener } from '../../irc/listener.js';
@@ -62,6 +64,19 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     deleteFilter(id);
     return { ok: true };
+  });
+
+  /** Re-score recent announces against one filter (no snatches). */
+  app.post('/api/v1/filters/:id/dry-run', async (req, reply) => {
+    if (!requireScope(req, reply, 'filters:read')) return;
+    const { id } = req.params as { id: string };
+    const filter = getFilter(id);
+    if (!filter) return reply.code(404).send({ error: 'Filter not found' });
+    const body = (req.body || {}) as { limit?: number; ignoreLimits?: boolean };
+    return dryRunFilter(filter, {
+      limit: body.limit,
+      ignoreLimits: body.ignoreLimits !== false,
+    });
   });
 
   app.get('/api/v1/filters/unsatisfied', async (req, reply) => {

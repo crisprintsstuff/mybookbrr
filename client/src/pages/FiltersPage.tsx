@@ -95,6 +95,8 @@ export function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
   const [lockoutHours, setLockoutHours] = useState('6');
   const [lockoutNote, setLockoutNote] = useState('');
   const [autoDisable, setAutoDisable] = useState(true);
+  const [dryRunId, setDryRunId] = useState<string | null>(null);
+  const [dryRunMsg, setDryRunMsg] = useState('');
 
   const load = async () => {
     const [list, guard, timed, settings] = await Promise.all([
@@ -111,6 +113,43 @@ export function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
   useEffect(() => {
     void load();
   }, []);
+
+  async function runDryRun(filterId: string, filterName: string) {
+    setDryRunId(filterId);
+    setDryRunMsg('');
+    try {
+      const r = await api<{
+        scanned: number;
+        wouldMatch: number;
+        blockedByLimit: number;
+        noMatch: number;
+        sampleMatches?: Array<{ title: string; author: string }>;
+      }>(`/api/filters/${filterId}/dry-run`, {
+        method: 'POST',
+        body: JSON.stringify({ limit: 100, ignoreLimits: true }),
+      });
+      const samples = (r.sampleMatches || [])
+        .slice(0, 3)
+        .map((s) => s.title)
+        .join('; ');
+      setMsgOk(true);
+      setDryRunMsg(
+        `${filterName}: ${r.wouldMatch}/${r.scanned} recent announces would match` +
+          (r.blockedByLimit ? ` · ${r.blockedByLimit} blocked only by download limit` : '') +
+          (samples ? ` · e.g. ${samples}` : '')
+      );
+      setMsg(
+        `${filterName}: ${r.wouldMatch}/${r.scanned} would match` +
+          (r.blockedByLimit ? ` (${r.blockedByLimit} limit-blocked)` : '')
+      );
+    } catch (err) {
+      setMsgOk(false);
+      setMsg(err instanceof Error ? err.message : 'Dry-run failed');
+      setDryRunMsg('');
+    } finally {
+      setDryRunId(null);
+    }
+  }
 
   async function testFilterDiscord(opts?: { url?: string; filterId?: string; filterName?: string }) {
     setTestingHook(true);
@@ -589,7 +628,7 @@ export function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
                 <th>On</th>
                 <th>Name</th>
                 <th>Pri</th>
-                {isAdmin && <th />}
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -678,48 +717,59 @@ export function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
                     </div>
                   </td>
                   <td>{f.priority}</td>
-                  {isAdmin && (
-                    <td>
-                      <div className="row">
-                        <button
-                          className="btn secondary"
-                          onClick={() => {
-                            setEditingId(f.id);
-                            setDraft({
-                              ...f,
-                              authors: f.authors || [],
-                              series: f.series || [],
-                              mediaTypes: f.mediaTypes || ['eBook', 'Audiobook'],
-                              formats: normalizeFormats(f.formats),
-                            });
-                          }}
-                        >
-                          Edit
-                        </button>
-                        {f.discordWebhookUrl ? (
+                  <td>
+                    <div className="row">
+                      <button
+                        className="btn secondary"
+                        disabled={dryRunId === f.id}
+                        title="Score recent announces against this filter (no snatches)"
+                        onClick={() => void runDryRun(f.id, f.name)}
+                      >
+                        {dryRunId === f.id ? '…' : 'Dry-run'}
+                      </button>
+                      {isAdmin && (
+                        <>
                           <button
                             className="btn secondary"
-                            disabled={testingHook}
-                            onClick={() =>
-                              void testFilterDiscord({ filterId: f.id, filterName: f.name })
-                            }
+                            onClick={() => {
+                              setEditingId(f.id);
+                              setDraft({
+                                ...f,
+                                authors: f.authors || [],
+                                series: f.series || [],
+                                mediaTypes: f.mediaTypes || ['eBook', 'Audiobook'],
+                                formats: normalizeFormats(f.formats),
+                              });
+                            }}
                           >
-                            Test
+                            Edit
                           </button>
-                        ) : null}
-                        <button
-                          className="btn danger"
-                          onClick={() => api(`/api/filters/${f.id}`, { method: 'DELETE' }).then(load)}
-                        >
-                          Del
-                        </button>
-                      </div>
-                    </td>
-                  )}
+                          {f.discordWebhookUrl ? (
+                            <button
+                              className="btn secondary"
+                              disabled={testingHook}
+                              onClick={() =>
+                                void testFilterDiscord({ filterId: f.id, filterName: f.name })
+                              }
+                            >
+                              Test
+                            </button>
+                          ) : null}
+                          <button
+                            className="btn danger"
+                            onClick={() => api(`/api/filters/${f.id}`, { method: 'DELETE' }).then(load)}
+                          >
+                            Del
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {dryRunMsg && <div className="okmsg" style={{ marginTop: '0.75rem' }}>{dryRunMsg}</div>}
         </div>
       </div>
     </>
