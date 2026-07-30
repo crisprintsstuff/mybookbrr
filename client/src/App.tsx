@@ -676,12 +676,37 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+type LiveChip = 'all' | 'snatch' | 'reject' | 'limit' | 'seen' | 'error';
+
+function liveEventMatches(
+  item: { type: string; payload?: any },
+  chip: LiveChip,
+  q: string
+): boolean {
+  const outcome = item.payload?.outcome as string | undefined;
+  const r = item.payload?.release;
+  if (q) {
+    const hay = `${r?.title || ''} ${r?.author || ''} ${item.payload?.reason || ''} ${(item.payload?.reasons || []).join(' ')}`.toLowerCase();
+    if (!hay.includes(q.toLowerCase())) return false;
+  }
+  if (chip === 'all') return true;
+  if (chip === 'snatch') return item.type === 'snatch' || outcome === 'snatched';
+  if (chip === 'reject') return item.type === 'reject' && outcome !== 'limit';
+  if (chip === 'limit')
+    return outcome === 'limit' || (item.payload?.atLimitFilters?.length > 0);
+  if (chip === 'seen') return outcome === 'already_seen' || /already seen/i.test(item.payload?.reason || '');
+  if (chip === 'error') return item.type === 'error';
+  return true;
+}
+
 function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
   const [items, setItems] = useState<Array<{ type: string; payload: any; createdAt?: string }>>([]);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState('');
   const [actionOk, setActionOk] = useState(true);
+  const [chip, setChip] = useState<LiveChip>('all');
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     void api<any[]>('/api/events').then((evts) => setItems(evts.reverse()));
@@ -740,15 +765,61 @@ function LiveFeed({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  const visible = [...items].reverse().filter((item) => liveEventMatches(item, chip, query.trim()));
+
   return (
     <>
       {actionMsg && <div className={actionOk ? 'okmsg' : 'error'} style={{ marginBottom: '0.75rem' }}>{actionMsg}</div>}
       <p className="page-sub" style={{ marginBottom: '0.75rem' }}>
         Expand an announce for per-filter pass/fail reasons (limits, format, author, already seen, etc.).
       </p>
+      <div className="live-toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
+        <input
+          type="search"
+          placeholder="Search title / author…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{ flex: '1 1 180px', minWidth: '140px', maxWidth: '280px' }}
+        />
+        <div className="row" style={{ flexWrap: 'wrap', gap: '0.35rem' }}>
+          {(
+            [
+              ['all', 'All'],
+              ['snatch', 'Snatches'],
+              ['reject', 'Rejects'],
+              ['limit', 'At limit'],
+              ['seen', 'Already seen'],
+              ['error', 'Errors'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={`btn ${chip === id ? '' : 'secondary'}`}
+              style={{ padding: '0.35rem 0.65rem', fontSize: '0.8rem' }}
+              onClick={() => setChip(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="feed">
         {items.length === 0 && <div className="card">Waiting for events…</div>}
-        {[...items].reverse().map((item, i) => {
+        {items.length > 0 && visible.length === 0 && (
+          <div className="card">
+            No events match this filter
+            {(query || chip !== 'all') && (
+              <>
+                {' · '}
+                <button type="button" className="btn secondary" onClick={() => { setQuery(''); setChip('all'); }}>
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {visible.map((item, i) => {
           const r = item.payload?.release;
           const key = `${item.type}-${item.createdAt || ''}-${r?.torrentId || i}-${i}`;
           const open = openKey === key;
