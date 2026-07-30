@@ -13,7 +13,7 @@ import {
 import { getWishlistStatus, pollWishlistOnce, runWatchNow } from '../../wishlist/poller.js';
 import { eventBus, processRelease } from '../../snatch/orchestrator.js';
 import { ircListener } from '../../irc/listener.js';
-import { requireScope } from '../../auth/rbac.js';
+import { identityHasScope, requireScope } from '../../auth/rbac.js';
 import { enrichFilterWithLimit } from '../../filters/limitUsage.js';
 import { buildPublicSettings, buildStatusPayload, buildHealthPayload } from '../statusHelpers.js';
 import {
@@ -25,6 +25,7 @@ import {
   getTimedLockoutStatus,
   setTimedLockout,
 } from '../../filters/timedLockout.js';
+import { runDatabaseBackup } from '../../db/backup.js';
 import type { FilterRule, WishlistWatch } from '../../types.js';
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
@@ -205,6 +206,28 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     ircListener.stop();
     setSettings({ irc_status: 'disconnected' });
     return ircListener.getStatus();
+  });
+
+  /** Manual SQLite backup (same as nightly scheduler). */
+  app.post('/api/v1/backup', async (req, reply) => {
+    // Hub keys usually have filters:write; accept that or snatch:write.
+    if (!identityHasScope(req, 'filters:write') && !identityHasScope(req, 'snatch:write')) {
+      if (!requireScope(req, reply, 'filters:write')) return;
+    }
+    try {
+      const dest = await runDatabaseBackup('manual-api');
+      return {
+        ok: true,
+        path: dest,
+        file: dest.split(/[/\\]/).pop(),
+        at: new Date().toISOString(),
+      };
+    } catch (err) {
+      return reply.code(500).send({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   app.post('/api/v1/snatch', async (req, reply) => {

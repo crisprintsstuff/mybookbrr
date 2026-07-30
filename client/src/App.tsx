@@ -2024,10 +2024,31 @@ function SettingsPage() {
   const [testingMam, setTestingMam] = useState(false);
   const [testingQbit, setTestingQbit] = useState(false);
   const [testingDiscord, setTestingDiscord] = useState<'stream' | 'errors' | 'snatch' | null>(null);
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupMsg, setBackupMsg] = useState('');
+  const [backupOk, setBackupOk] = useState(true);
 
   useEffect(() => {
     void api<any>('/api/settings').then(setLocal);
   }, []);
+
+  async function runBackup() {
+    setBackingUp(true);
+    setBackupMsg('');
+    try {
+      const r = await api<{ ok: boolean; file?: string; message?: string }>('/api/backup', {
+        method: 'POST',
+        body: '{}',
+      });
+      setBackupOk(true);
+      setBackupMsg(r.file ? `Backup saved: ${r.file}` : 'Backup complete');
+    } catch (err) {
+      setBackupOk(false);
+      setBackupMsg(err instanceof Error ? err.message : 'Backup failed');
+    } finally {
+      setBackingUp(false);
+    }
+  }
 
   async function save() {
     setMsg('');
@@ -2168,6 +2189,18 @@ function SettingsPage() {
 
   return (
     <>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <h3><i className="fa-solid fa-database" /> Database backup</h3>
+        <p className="detail">
+          SQLite is also backed up nightly into <code>data/backups/</code> (keeps 7). Use this for a manual snapshot before changes.
+        </p>
+        <div className="row" style={{ marginTop: '0.6rem' }}>
+          <button className="btn secondary" type="button" disabled={backingUp} onClick={() => void runBackup()}>
+            {backingUp ? 'Backing up…' : 'Backup now'}
+          </button>
+        </div>
+        {backupMsg && <div className={backupOk ? 'okmsg' : 'error'} style={{ marginTop: '0.5rem' }}>{backupMsg}</div>}
+      </div>
       <div className="grid two">
         <div className="card">
           <h3><i className="fa-solid fa-paw" /> MyAnonamouse</h3>

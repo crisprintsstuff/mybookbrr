@@ -28,6 +28,7 @@ import {
   setTimedLockout,
 } from '../filters/timedLockout.js';
 import { requireRole, requireUser } from '../auth/rbac.js';
+import { runDatabaseBackup } from '../db/backup.js';
 import { enrichFilterWithLimit } from '../filters/limitUsage.js';
 import { buildStatusPayload } from './statusHelpers.js';
 import type { FilterRule, WishlistWatch } from '../types.js';
@@ -157,6 +158,24 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     if (body.username) overrides.username = body.username;
     if (body.password) overrides.password = body.password;
     return testQbittorrent(overrides);
+  });
+
+  app.post('/api/backup', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    try {
+      const dest = await runDatabaseBackup('manual-ui');
+      return {
+        ok: true,
+        path: dest,
+        file: dest.split(/[/\\]/).pop(),
+        at: new Date().toISOString(),
+      };
+    } catch (err) {
+      return reply.code(500).send({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   app.get('/api/filters', async (req, reply) => {
