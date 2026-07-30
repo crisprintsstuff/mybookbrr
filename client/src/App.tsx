@@ -1612,6 +1612,41 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
                         {f.atLimit && f.resetsAt ? ` · resets ${formatResetsInClient(f.resetsAt)}` : ''}
                       </span>
                     ) : null}
+                    {f.limitPeriod && f.limitPeriod !== 'unlimited' && (f.limitMax > 0 || f.maxDownloads > 0) ? (
+                      <div
+                        className="limit-meter"
+                        title={`${f.limitUsed ?? 0} of ${f.limitMax || f.maxDownloads} in ${f.limitPeriod} window`}
+                        style={{
+                          marginTop: '0.35rem',
+                          height: 6,
+                          borderRadius: 999,
+                          background: 'rgba(255,255,255,0.08)',
+                          overflow: 'hidden',
+                          maxWidth: 220,
+                        }}
+                      >
+                        <i
+                          style={{
+                            display: 'block',
+                            height: '100%',
+                            width: `${Math.min(
+                              100,
+                              Math.round(
+                                ((f.limitUsed ?? 0) / Math.max(1, f.limitMax || f.maxDownloads || 1)) * 100
+                              )
+                            )}%`,
+                            background:
+                              f.atLimit
+                                ? 'var(--danger, #c44)'
+                                : (f.limitUsed ?? 0) >= (f.limitMax || f.maxDownloads) * 0.8
+                                  ? 'var(--accent-orange, #c4783a)'
+                                  : 'var(--ok, #3a9)',
+                            borderRadius: 999,
+                            transition: 'width 0.25s ease',
+                          }}
+                        />
+                      </div>
+                    ) : null}
                     <div className="detail">
                       {(f.formats || []).join(', ') || 'formats?'}
                       {' · '}
@@ -1620,6 +1655,14 @@ function FiltersPage({ isAdmin }: { isAdmin: boolean }) {
                       {f.limitPeriod && f.limitPeriod !== 'unlimited'
                         ? `cap ${f.limitMax || f.maxDownloads || 0}/${f.limitPeriod} (lifetime snatches ${f.snatchCount || 0})`
                         : 'no limit'}
+                      {f.atLimit && f.enabled
+                        ? ' · blocking snatches'
+                        : f.limitPeriod &&
+                            f.limitPeriod !== 'unlimited' &&
+                            (f.limitUsed ?? 0) >= (f.limitMax || f.maxDownloads) * 0.8 &&
+                            !f.atLimit
+                          ? ' · nearing cap'
+                          : ''}
                     </div>
                   </td>
                   <td>{f.priority}</td>
