@@ -11,6 +11,15 @@ import {
   saveFilter,
   saveWatch,
 } from '../db/repos.js';
+import {
+  actorFromRequest,
+  getSettingsVersion,
+  listAudit,
+  listSettingsVersions,
+  recordSettingsVersion,
+  restoreSettingsVersion,
+  writeAudit,
+} from '../db/audit.js';
 
 import { searchTorrents, testMamSession } from '../mam/client.js';
 import { mamHitToRelease } from '../wishlist/matcher.js';
@@ -74,12 +83,13 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
       'wishlist_poll_enabled', 'wishlist_default_interval',
       'filters_auto_disable_on_unsatisfied',
     ];
+    const beforeAll = getAllSettings();
     const before = {
-      irc_nick: getSetting('irc_nick') || '',
-      irc_nickserv_password: getSetting('irc_nickserv_password') || '',
-      irc_host: getSetting('irc_host') || '',
-      irc_port: getSetting('irc_port') || '',
-      irc_channel: getSetting('irc_channel') || '',
+      irc_nick: beforeAll.irc_nick || '',
+      irc_nickserv_password: beforeAll.irc_nickserv_password || '',
+      irc_host: beforeAll.irc_host || '',
+      irc_port: beforeAll.irc_port || '',
+      irc_channel: beforeAll.irc_channel || '',
     };
     const updates: Record<string, string> = {};
     for (const key of allowed) {
@@ -107,13 +117,14 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
       if (body[key] === '__clear__') updates[key] = '';
     }
     setSettings(updates);
+    const afterAll = getAllSettings();
 
     const after = {
-      irc_nick: getSetting('irc_nick') || '',
-      irc_nickserv_password: getSetting('irc_nickserv_password') || '',
-      irc_host: getSetting('irc_host') || '',
-      irc_port: getSetting('irc_port') || '',
-      irc_channel: getSetting('irc_channel') || '',
+      irc_nick: afterAll.irc_nick || '',
+      irc_nickserv_password: afterAll.irc_nickserv_password || '',
+      irc_host: afterAll.irc_host || '',
+      irc_port: afterAll.irc_port || '',
+      irc_channel: afterAll.irc_channel || '',
     };
     const connChanged =
       before.irc_nick !== after.irc_nick ||
@@ -125,8 +136,17 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
       ircListener.restart('connection settings changed');
     }
 
+    const actor = actorFromRequest(req);
+    const ver = recordSettingsVersion({
+      before: beforeAll,
+      after: afterAll,
+      updates,
+      actor,
+    });
+
     return {
       ok: true,
+      settings_version: ver?.version ?? null,
       discord: {
         stream: Boolean(getSetting('discord_webhook_stream')),
         errors: Boolean(getSetting('discord_webhook_errors')),
@@ -166,10 +186,17 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     if (!requireRole(req, reply, 'admin')) return;
     try {
       const dest = await runDatabaseBackup('manual-ui');
+      const file = dest.split(/[/\\]/).pop();
+      writeAudit({
+        action: 'backup.create',
+        summary: `Database backup ${file || 'created'}`,
+        detail: { file, path: dest },
+        actor: actorFromRequest(req),
+      });
       return {
         ok: true,
         path: dest,
-        file: dest.split(/[/\\]/).pop(),
+        file,
         at: new Date().toISOString(),
       };
     } catch (err) {
@@ -180,6 +207,65 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  app.get('/api/audit', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const q = req.query as { limit?: string; action?: string };
+    const limit = q.limit ? Number(q.limit) : 100;
+    return {
+      entries: listAudit(Number.isFinite(limit) ? limit : 100, q.action || undefined),
+    };
+  });
+
+  app.get('/api/settings/versions', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const q = req.query as { limit?: string };
+    const limit = q.limit ? Number(q.limit) : 50;
+    return {
+      versions: listSettingsVersions(Number.isFinite(limit) ? limit : 50),
+    };
+  });
+
+  app.get('/api/settings/versions/:version', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const { version } = req.params as { version: string };
+    const v = getSettingsVersion(Number(version));
+    if (!v) return reply.code(404).send({ error: 'Version not found' });
+    return v;
+  });
+
+  /** Restore non-secret settings from a historical snapshot (creates a new version). */
+  app.post('/api/settings/versions/:version/restore', async (req, reply) => {
+    if (!requireRole(req, reply, 'admin')) return;
+    const { version } = req.params as { version: string };
+    const n = Number(version);
+    if (!Number.isFinite(n) || n < 1) {
+      return reply.code(400).send({ ok: false, error: 'Invalid version' });
+    }
+    const result = restoreSettingsVersion(n, actorFromRequest(req));
+    if (!result.ok) {
+      return reply.code(404).send(result);
+    }
+    // Restart IRC if connection fields changed
+    if (
+      result.restoredKeys.some((k) =>
+        ['irc_nick', 'irc_host', 'irc_port', 'irc_channel'].includes(k),
+      ) &&
+      ircListener.isActive()
+    ) {
+      ircListener.restart('settings restored from history');
+    }
+    return {
+      ok: true,
+      restored_from: n,
+      new_version: result.version.version,
+      restored_keys: result.restoredKeys,
+      message:
+        result.restoredKeys.length === 0
+          ? `v${n} already matches current non-secret settings`
+          : `Restored ${result.restoredKeys.length} field(s) from v${n} → new v${result.version.version}`,
+    };
+  });
+
   app.get('/api/filters', async (req, reply) => {
     if (!requireUser(req, reply)) return;
     return listFilters().map((f) => enrichFilterWithLimit(f));
@@ -187,19 +273,76 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/filters', async (req, reply) => {
     if (!requireRole(req, reply, 'admin')) return;
-    return saveFilter(req.body as Partial<FilterRule>);
+    const saved = saveFilter(req.body as Partial<FilterRule>);
+    writeAudit({
+      action: 'filter.create',
+      summary: `Created filter “${saved.name}”`,
+      detail: {
+        id: saved.id,
+        name: saved.name,
+        enabled: saved.enabled,
+        maxDownloads: saved.maxDownloads,
+        limitPeriod: saved.limitPeriod,
+      },
+      actor: actorFromRequest(req),
+    });
+    return saved;
   });
 
   app.put('/api/filters/:id', async (req, reply) => {
     if (!requireRole(req, reply, 'admin')) return;
     const { id } = req.params as { id: string };
-    return saveFilter({ ...(req.body as Partial<FilterRule>), id });
+    const prev = getFilter(id);
+    const saved = saveFilter({ ...(req.body as Partial<FilterRule>), id });
+    const body = (req.body || {}) as Partial<FilterRule>;
+    const action =
+      prev && typeof body.enabled === 'boolean' && body.enabled !== prev.enabled
+        ? body.enabled
+          ? 'filter.enable'
+          : 'filter.disable'
+        : 'filter.update';
+    writeAudit({
+      action,
+      summary:
+        action === 'filter.enable'
+          ? `Started filter “${saved.name}”`
+          : action === 'filter.disable'
+            ? `Stopped filter “${saved.name}”`
+            : `Updated filter “${saved.name}”`,
+      detail: {
+        id: saved.id,
+        name: saved.name,
+        before: prev
+          ? {
+              enabled: prev.enabled,
+              maxDownloads: prev.maxDownloads,
+              limitPeriod: prev.limitPeriod,
+              name: prev.name,
+            }
+          : null,
+        after: {
+          enabled: saved.enabled,
+          maxDownloads: saved.maxDownloads,
+          limitPeriod: saved.limitPeriod,
+          name: saved.name,
+        },
+      },
+      actor: actorFromRequest(req),
+    });
+    return saved;
   });
 
   app.delete('/api/filters/:id', async (req, reply) => {
     if (!requireRole(req, reply, 'admin')) return;
     const { id } = req.params as { id: string };
+    const prev = getFilter(id);
     deleteFilter(id);
+    writeAudit({
+      action: 'filter.delete',
+      summary: `Deleted filter “${prev?.name || id}”`,
+      detail: { id, name: prev?.name },
+      actor: actorFromRequest(req),
+    });
     return { ok: true };
   });
 
@@ -227,6 +370,12 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     eventBus.broadcast('unsatisfied_limit_cleared', {
       at: new Date().toISOString(),
       ...result,
+    });
+    writeAudit({
+      action: 'lockout.unsatisfied_clear',
+      summary: 'Cleared unsatisfied lockout',
+      detail: result,
+      actor: actorFromRequest(req),
     });
     return { ok: true, ...result, unsatisfied: getUnsatisfiedStatus() };
   });
@@ -277,6 +426,12 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     if (!requireRole(req, reply, 'admin')) return;
     const body = (req.body || {}) as { reenableFilters?: boolean };
     const result = clearTimedLockout(body.reenableFilters !== false);
+    writeAudit({
+      action: 'lockout.timed_clear',
+      summary: 'Cleared timed MAM lockout',
+      detail: result,
+      actor: actorFromRequest(req),
+    });
     return { ok: true, ...result, timedLockout: getTimedLockoutStatus() };
   });
 
@@ -431,6 +586,11 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     if (!requireRole(req, reply, 'admin')) return;
     setSettings({ irc_status: 'starting' });
     ircListener.start();
+    writeAudit({
+      action: 'irc.start',
+      summary: 'Started IRC listener',
+      actor: actorFromRequest(req),
+    });
     return ircListener.getStatus();
   });
 
@@ -438,6 +598,11 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     if (!requireRole(req, reply, 'admin')) return;
     ircListener.stop();
     setSettings({ irc_status: 'disconnected' });
+    writeAudit({
+      action: 'irc.stop',
+      summary: 'Stopped IRC listener',
+      actor: actorFromRequest(req),
+    });
     return ircListener.getStatus();
   });
 }

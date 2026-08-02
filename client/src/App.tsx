@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type AuthUser, type Page } from './lib/api';
 import { BackToHubLink } from './components/BackToHubLink';
 import { Login, ChangePasswordGate } from './pages/Login';
-import { UsersPage } from './pages/UsersPage';
-import { ApiKeysPage } from './pages/ApiKeysPage';
 import { Dashboard } from './pages/Dashboard';
 import { LiveFeed } from './pages/LiveFeed';
 import { FiltersPage } from './pages/FiltersPage';
 import { WishlistPage } from './pages/WishlistPage';
 import { SearchPage } from './pages/SearchPage';
 import { HistoryPage } from './pages/HistoryPage';
-import { SettingsPage } from './pages/SettingsPage';
+import { ConnectionsPage } from './pages/ConnectionsPage';
+import { AdminPage } from './pages/AdminPage';
 
 export default function App() {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
@@ -34,9 +33,8 @@ export default function App() {
     ];
     if (isAdmin) {
       items.push(
-        ['settings', 'Settings', 'fa-solid fa-gear'],
-        ['users', 'Users', 'fa-solid fa-users'],
-        ['api-keys', 'API Keys', 'fa-solid fa-key']
+        ['connections', 'Connections', 'fa-solid fa-link'],
+        ['admin', 'Admin', 'fa-solid fa-shield-halved'],
       );
     }
     return items;
@@ -56,11 +54,13 @@ export default function App() {
       },
       search: { title: 'Search', subtitle: 'Ad-hoc MAM search with one-click snatch' },
       history: { title: 'History', subtitle: 'Snatch log' },
-      settings: { title: 'Settings', subtitle: 'MAM session, IRC, qBittorrent, Discord' },
-      users: { title: 'Users', subtitle: 'Admin and viewer accounts for the web UI' },
-      'api-keys': {
-        title: 'API keys',
-        subtitle: 'Scoped keys for Discord bots and home monitors (/api/v1)',
+      connections: {
+        title: 'Connections',
+        subtitle: 'MAM session & IRC · download client (qBit / watch folder)',
+      },
+      admin: {
+        title: 'Admin',
+        subtitle: 'Notifications · maintenance · logs · users · API keys',
       },
     };
     return meta[page];
@@ -80,7 +80,7 @@ export default function App() {
         <div className="sidebar-header">
           <div className="brand-logo">
             <span className="logo-icon">
-              <i className="fa-solid fa-book-open" />
+              <img src="/logo.png?v=1" width={40} height={40} alt="" />
             </span>
             <div className="brand-text">
               <h2>
@@ -149,9 +149,8 @@ export default function App() {
           {page === 'wishlist' && <WishlistPage isAdmin={isAdmin} />}
           {page === 'search' && <SearchPage isAdmin={isAdmin} />}
           {page === 'history' && <HistoryPage />}
-          {page === 'settings' && isAdmin && <SettingsPage />}
-          {page === 'users' && isAdmin && <UsersPage />}
-          {page === 'api-keys' && isAdmin && <ApiKeysPage />}
+          {page === 'connections' && isAdmin && <ConnectionsPage />}
+          {page === 'admin' && isAdmin && <AdminPage />}
         </div>
       </div>
     </div>

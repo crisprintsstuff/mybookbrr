@@ -8,6 +8,7 @@ export function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [discordEnabled, setDiscordEnabled] = useState(false);
+  const [oidcEnabled, setOidcEnabled] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -25,9 +26,31 @@ export function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
       setError(messages[discordError] || `Discord login failed (${discordError})`);
       window.history.replaceState({}, '', window.location.pathname);
     }
-    void api<{ discord: boolean }>('/api/auth/providers')
-      .then((r) => setDiscordEnabled(Boolean(r.discord)))
-      .catch(() => setDiscordEnabled(false));
+    const oidcError = params.get('oidc_error') || params.get('sso_error');
+    if (oidcError) {
+      const messages: Record<string, string> = {
+        denied: 'SSO was cancelled.',
+        missing_code: 'SSO incomplete. Try again.',
+        invalid_state: 'SSO session expired. Try again.',
+        exchange_failed: 'SSO token exchange failed.',
+        disabled: 'Your account is disabled.',
+        not_configured: 'SSO is not configured.',
+        redeem_failed: 'Hub SSO ticket invalid or expired.',
+        redeem_unreachable: 'Could not reach Hub for SSO.',
+        missing_ticket: 'Missing SSO ticket.',
+      };
+      setError(messages[oidcError] || `SSO failed (${oidcError})`);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    void api<{ discord: boolean; oidc?: boolean }>('/api/auth/providers')
+      .then((r) => {
+        setDiscordEnabled(Boolean(r.discord));
+        setOidcEnabled(Boolean(r.oidc));
+      })
+      .catch(() => {
+        setDiscordEnabled(false);
+        setOidcEnabled(false);
+      });
   }, []);
 
   async function submit(e: React.FormEvent) {
@@ -51,12 +74,22 @@ export function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
         <div className="brand-logo-large" aria-hidden>
-          <i className="fa-solid fa-book-open" />
+          <img src="/logo.png?v=1" width={88} height={88} alt="" />
         </div>
         <h1>
           MyBook<span>BRR</span>
         </h1>
         <p>MAM auto-snatch & wishlist downloader</p>
+        {oidcEnabled && (
+          <>
+            <a className="btn primary" href="/api/auth/oidc" style={{ width: '100%', justifyContent: 'center' }}>
+              Continue with Authentik
+            </a>
+            <div className="login-divider">
+              <span>or</span>
+            </div>
+          </>
+        )}
         {discordEnabled && (
           <>
             <a className="btn btn-discord" href="/api/auth/discord">
@@ -72,7 +105,7 @@ export function Login({ onDone }: { onDone: (user: AuthUser) => void }) {
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            autoFocus={!discordEnabled}
+            autoFocus={!discordEnabled && !oidcEnabled}
             autoComplete="username"
           />
         </div>

@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS users (
   enabled INTEGER NOT NULL DEFAULT 1,
   must_change_password INTEGER NOT NULL DEFAULT 0,
   discord_id TEXT,
+  oidc_sub TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_login_at TEXT
@@ -157,6 +158,35 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, attempted_at);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  action TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '{}',
+  user_id TEXT,
+  username TEXT NOT NULL DEFAULT 'system',
+  source TEXT NOT NULL DEFAULT 'system',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+
+CREATE TABLE IF NOT EXISTS settings_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version INTEGER NOT NULL UNIQUE,
+  summary TEXT NOT NULL,
+  changed_keys TEXT NOT NULL DEFAULT '[]',
+  diff TEXT NOT NULL DEFAULT '{}',
+  snapshot TEXT NOT NULL DEFAULT '{}',
+  user_id TEXT,
+  username TEXT NOT NULL DEFAULT 'system',
+  source TEXT NOT NULL DEFAULT 'system',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_settings_versions_created ON settings_versions(created_at DESC);
 `;
 
 export function getDataDir(): string {
@@ -190,8 +220,14 @@ export function initDb(dbPath?: string): Db {
   if (userCols.length && !userCols.some((c) => c.name === 'discord_id')) {
     db.exec(`ALTER TABLE users ADD COLUMN discord_id TEXT`);
   }
+  if (userCols.length && !userCols.some((c) => c.name === 'oidc_sub')) {
+    db.exec(`ALTER TABLE users ADD COLUMN oidc_sub TEXT`);
+  }
   db.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id) WHERE discord_id IS NOT NULL`
+  );
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub) WHERE oidc_sub IS NOT NULL`
   );
 
   // Seed defaults

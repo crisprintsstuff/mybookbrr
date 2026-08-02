@@ -30,6 +30,7 @@ export interface User {
   enabled: boolean;
   mustChangePassword: boolean;
   discordId: string | null;
+  oidcSub?: string | null;
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;

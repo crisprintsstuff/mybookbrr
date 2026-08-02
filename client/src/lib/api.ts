@@ -5,9 +5,8 @@ export type Page =
   | 'wishlist'
   | 'search'
   | 'history'
-  | 'settings'
-  | 'users'
-  | 'api-keys';
+  | 'connections'
+  | 'admin';
 
 export type AuthUser = {
   id: string;

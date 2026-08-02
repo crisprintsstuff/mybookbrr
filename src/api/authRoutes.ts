@@ -27,12 +27,27 @@ import {
   ensureUniqueUsername,
   getUserByDiscordId,
   getUserById,
+  getUserByOidcSub,
   getUserByUsername,
   linkDiscordId,
+  linkOidcSub,
   listUsers,
   revokeUserSessions,
   updateUser,
 } from '../db/authRepos.js';
+import {
+  buildOidcAuthorizeUrl,
+  clearOidcStateCookie,
+  createOidcState,
+  exchangeOidcCode,
+  fetchOidcUserInfo,
+  getOidcDiscovery,
+  isOidcConfigured,
+  readOidcStateCookie,
+  roleFromOidc,
+  setOidcStateCookie,
+  usernameFromOidc,
+} from '../auth/oidc.js';
 import {
   createKeyedApiKey,
   listActiveApiKeys,
@@ -59,11 +74,105 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/auth/providers', async () => {
     return {
       discord: isDiscordOAuthConfigured(),
+      oidc: isOidcConfigured(),
       hub_sso: Boolean(
         (process.env.SSO_SHARED_SECRET || '').trim() &&
           (process.env.HUB_SSO_REDEEM_URL || '').trim()
       ),
     };
+  });
+
+  const OIDC_PASSWORD_SENTINEL = '!oidc-sso';
+
+  function redirectOidcError(reply: import('fastify').FastifyReply, code: string) {
+    clearOidcStateCookie(reply);
+    return reply.redirect(`/?oidc_error=${encodeURIComponent(code)}`);
+  }
+
+  /** Authentik / OIDC login (direct IdP — deeper than Hub ticket SSO). */
+  app.get('/api/auth/oidc', async (_req, reply) => {
+    if (!isOidcConfigured()) {
+      return reply.code(503).send({ error: 'OIDC is not configured' });
+    }
+    try {
+      const discovery = await getOidcDiscovery();
+      const state = createOidcState();
+      setOidcStateCookie(reply, state);
+      return reply.redirect(buildOidcAuthorizeUrl(discovery, state));
+    } catch (err) {
+      _req.log.error({ err }, 'OIDC authorize failed');
+      return reply.code(502).send({ error: 'OIDC discovery failed' });
+    }
+  });
+
+  app.get('/api/auth/oidc/callback', async (req, reply) => {
+    if (!isOidcConfigured()) return redirectOidcError(reply, 'not_configured');
+    const q = req.query as { code?: string; state?: string; error?: string };
+    if (q.error) return redirectOidcError(reply, 'denied');
+    if (!q.code || !q.state) return redirectOidcError(reply, 'missing_code');
+
+    const expected = readOidcStateCookie(req);
+    clearOidcStateCookie(reply);
+    if (!expected || expected !== q.state) return redirectOidcError(reply, 'invalid_state');
+
+    let info;
+    try {
+      const discovery = await getOidcDiscovery();
+      const tokens = await exchangeOidcCode(discovery, q.code);
+      info = await fetchOidcUserInfo(discovery, tokens.access_token);
+    } catch (err) {
+      req.log.error({ err }, 'OIDC token/userinfo failed');
+      return redirectOidcError(reply, 'exchange_failed');
+    }
+
+    const role = roleFromOidc(info);
+    let user = getUserByOidcSub(info.sub);
+
+    if (!user) {
+      const linkUsername = (process.env.OIDC_LINK_USERNAME || '').trim();
+      if (linkUsername) {
+        const existing = getUserByUsername(linkUsername);
+        if (existing && !existing.oidcSub) {
+          user = linkOidcSub(existing.id, info.sub) || existing;
+        }
+      }
+    }
+
+    if (!user) {
+      // Prefer matching by username from IdP
+      const uname = usernameFromOidc(info);
+      const byName = getUserByUsername(uname);
+      if (byName && !byName.oidcSub) {
+        user = linkOidcSub(byName.id, info.sub) || byName;
+      }
+    }
+
+    if (!user) {
+      const username = ensureUniqueUsername(usernameFromOidc(info));
+      user = createUser({
+        username,
+        passwordHash: OIDC_PASSWORD_SENTINEL,
+        role,
+        mustChangePassword: false,
+        oidcSub: info.sub,
+      });
+    } else if (user.role !== role && String(process.env.OIDC_SYNC_ROLE || 'true').toLowerCase() !== 'false') {
+      updateUser(user.id, { role });
+      user = getUserById(user.id) || user;
+    }
+
+    if (!user.enabled) return redirectOidcError(reply, 'disabled');
+
+    const { token, expiresAt } = createUserSession(user, {
+      ip: clientIp(req),
+      userAgent: String(req.headers['user-agent'] || ''),
+    });
+    setSessionCookie(reply, token, expiresAt);
+    req.log.info(
+      { userId: user.id, username: user.username, role: user.role, via: 'oidc', sub: info.sub },
+      'OIDC login'
+    );
+    return reply.redirect('/');
   });
 
   /**

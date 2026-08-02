@@ -28,6 +28,7 @@ import {
   setTimedLockout,
 } from '../../filters/timedLockout.js';
 import { runDatabaseBackup } from '../../db/backup.js';
+import { actorFromRequest, writeAudit } from '../../db/audit.js';
 import type { FilterRule, WishlistWatch } from '../../types.js';
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
@@ -50,19 +51,74 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/v1/filters', async (req, reply) => {
     if (!requireScope(req, reply, 'filters:write')) return;
-    return saveFilter(req.body as Partial<FilterRule>);
+    const saved = saveFilter(req.body as Partial<FilterRule>);
+    writeAudit({
+      action: 'filter.create',
+      summary: `Created filter “${saved.name}”`,
+      detail: {
+        id: saved.id,
+        name: saved.name,
+        enabled: saved.enabled,
+        maxDownloads: saved.maxDownloads,
+        limitPeriod: saved.limitPeriod,
+      },
+      actor: actorFromRequest(req),
+    });
+    return saved;
   });
 
   app.put('/api/v1/filters/:id', async (req, reply) => {
     if (!requireScope(req, reply, 'filters:write')) return;
     const { id } = req.params as { id: string };
-    return saveFilter({ ...(req.body as Partial<FilterRule>), id });
+    const prev = getFilter(id);
+    const body = (req.body || {}) as Partial<FilterRule>;
+    const saved = saveFilter({ ...body, id });
+    const action =
+      prev && typeof body.enabled === 'boolean' && body.enabled !== prev.enabled
+        ? body.enabled
+          ? 'filter.enable'
+          : 'filter.disable'
+        : 'filter.update';
+    writeAudit({
+      action,
+      summary:
+        action === 'filter.enable'
+          ? `Started filter “${saved.name}”`
+          : action === 'filter.disable'
+            ? `Stopped filter “${saved.name}”`
+            : `Updated filter “${saved.name}”`,
+      detail: {
+        id: saved.id,
+        name: saved.name,
+        before: prev
+          ? {
+              enabled: prev.enabled,
+              maxDownloads: prev.maxDownloads,
+              limitPeriod: prev.limitPeriod,
+            }
+          : null,
+        after: {
+          enabled: saved.enabled,
+          maxDownloads: saved.maxDownloads,
+          limitPeriod: saved.limitPeriod,
+        },
+      },
+      actor: actorFromRequest(req),
+    });
+    return saved;
   });
 
   app.delete('/api/v1/filters/:id', async (req, reply) => {
     if (!requireScope(req, reply, 'filters:write')) return;
     const { id } = req.params as { id: string };
+    const prev = getFilter(id);
     deleteFilter(id);
+    writeAudit({
+      action: 'filter.delete',
+      summary: `Deleted filter “${prev?.name || id}”`,
+      detail: { id, name: prev?.name },
+      actor: actorFromRequest(req),
+    });
     return { ok: true };
   });
 
@@ -213,6 +269,11 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     if (!requireScope(req, reply, 'irc:control')) return;
     setSettings({ irc_status: 'starting' });
     ircListener.start();
+    writeAudit({
+      action: 'irc.start',
+      summary: 'Started IRC listener',
+      actor: actorFromRequest(req),
+    });
     return ircListener.getStatus();
   });
 
@@ -220,6 +281,11 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     if (!requireScope(req, reply, 'irc:control')) return;
     ircListener.stop();
     setSettings({ irc_status: 'disconnected' });
+    writeAudit({
+      action: 'irc.stop',
+      summary: 'Stopped IRC listener',
+      actor: actorFromRequest(req),
+    });
     return ircListener.getStatus();
   });
 
@@ -231,10 +297,17 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
     try {
       const dest = await runDatabaseBackup('manual-api');
+      const file = dest.split(/[/\\]/).pop();
+      writeAudit({
+        action: 'backup.create',
+        summary: `Database backup ${file || 'created'}`,
+        detail: { file, path: dest, via: 'api' },
+        actor: actorFromRequest(req),
+      });
       return {
         ok: true,
         path: dest,
-        file: dest.split(/[/\\]/).pop(),
+        file,
         at: new Date().toISOString(),
       };
     } catch (err) {

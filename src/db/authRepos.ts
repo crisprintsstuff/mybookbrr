@@ -10,6 +10,7 @@ function rowToUser(r: Record<string, unknown>): User {
     enabled: Boolean(r.enabled),
     mustChangePassword: Boolean(r.must_change_password),
     discordId: r.discord_id ? String(r.discord_id) : null,
+    oidcSub: r.oidc_sub ? String(r.oidc_sub) : null,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
     lastLoginAt: r.last_login_at ? String(r.last_login_at) : null,
@@ -50,18 +51,26 @@ export function getUserByDiscordId(discordId: string): User | null {
   return row ? rowToUser(row) : null;
 }
 
+export function getUserByOidcSub(sub: string): User | null {
+  const row = getDb()
+    .prepare('SELECT * FROM users WHERE oidc_sub = ?')
+    .get(sub) as Record<string, unknown> | undefined;
+  return row ? rowToUser(row) : null;
+}
+
 export function createUser(input: {
   username: string;
   passwordHash: string;
   role: UserRole;
   mustChangePassword?: boolean;
   discordId?: string | null;
+  oidcSub?: string | null;
 }): User {
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO users (id, username, password_hash, role, enabled, must_change_password, discord_id)
-       VALUES (?, ?, ?, ?, 1, ?, ?)`
+      `INSERT INTO users (id, username, password_hash, role, enabled, must_change_password, discord_id, oidc_sub)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?)`
     )
     .run(
       id,
@@ -69,7 +78,8 @@ export function createUser(input: {
       input.passwordHash,
       input.role,
       input.mustChangePassword ? 1 : 0,
-      input.discordId || null
+      input.discordId || null,
+      input.oidcSub || null
     );
   return getUserById(id)!;
 }
@@ -80,6 +90,13 @@ export function linkDiscordId(userId: string, discordId: string): User | null {
       `UPDATE users SET discord_id = ?, updated_at = datetime('now') WHERE id = ?`
     )
     .run(discordId, userId);
+  return getUserById(userId);
+}
+
+export function linkOidcSub(userId: string, oidcSub: string): User | null {
+  getDb()
+    .prepare(`UPDATE users SET oidc_sub = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(oidcSub, userId);
   return getUserById(userId);
 }
 
