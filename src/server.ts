@@ -22,9 +22,10 @@ const PORT = Number(process.env.PORT || 7480);
 const HOST = process.env.HOST || '0.0.0.0';
 
 const DEFAULT_CORS_ORIGINS = [
-  'https://mybookbrr.boznetwork.com',
   'http://127.0.0.1:7480',
   'http://localhost:7480',
+  'http://127.0.0.1:5174',
+  'http://localhost:5174',
   'http://127.0.0.1:5173',
   'http://localhost:5173',
 ];

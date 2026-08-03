@@ -38,10 +38,13 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** BozNetwork Hub (control plane) — override with VITE_HUB_URL at build time if needed */
-export const HUB_URL =
-  (import.meta.env.VITE_HUB_URL as string | undefined)?.replace(/\/$/, '') ||
-  'https://portal.boznetwork.com';
+/**
+ * Optional link back to a control-plane hub (e.g. BozNetwork Hub).
+ * Set VITE_HUB_URL at build time to enable the “Back to Hub” UI; leave unset for standalone installs.
+ */
+export const HUB_URL = (
+  (import.meta.env.VITE_HUB_URL as string | undefined) || ''
+).replace(/\/$/, '');
 
 export function formatResetsInClient(resetsAt: string | null | undefined): string {
   if (!resetsAt) return '';

@@ -4,16 +4,19 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/cris/newprojects/mybookbrr
+# Adjust WorkingDirectory and EnvironmentFile to your install path.
+WorkingDirectory=%h/mybookbrr
 ExecStart=/usr/bin/node dist/server.js
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
 KillMode=mixed
 Environment=NODE_ENV=production
-EnvironmentFile=-/home/cris/newprojects/mybookbrr/.env
-StandardOutput=append:/home/cris/newprojects/mybookbrr/data/mybookbrr.log
-StandardError=append:/home/cris/newprojects/mybookbrr/data/mybookbrr.log
+EnvironmentFile=-%h/mybookbrr/.env
+# Optional: enable “Back to Hub” in the UI by rebuilding the client with:
+#   VITE_HUB_URL=https://your-hub.example.com npm run build:client
+StandardOutput=append:%h/mybookbrr/data/mybookbrr.log
+StandardError=append:%h/mybookbrr/data/mybookbrr.log
 NoNewPrivileges=true
 PrivateTmp=true
 LimitNOFILE=65535

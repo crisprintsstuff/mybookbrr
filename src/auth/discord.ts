@@ -5,7 +5,7 @@ import { cookieSecure } from './sessions.js';
 import type { UserRole } from './types.js';
 
 const STATE_COOKIE = 'mbb_oauth_state';
-const PORTAL_AUTH_CONFIG = '/home/cris/discordbots/dashboard/auth_config.json';
+
 
 export type DiscordOAuthConfig = {
   enabled: boolean;
@@ -24,14 +24,21 @@ function parseIdList(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function loadPortalAuthFallback(): {
+/**
+ * Optional JSON file with Discord app credentials:
+ * { "client_id", "client_secret", "allowed_user_ids": ["…"] }
+ * Path from DISCORD_AUTH_CONFIG only — no hard-coded host paths.
+ */
+function loadDiscordAuthFileFallback(): {
   clientId?: string;
   clientSecret?: string;
   allowedUserIds?: string[];
 } {
+  const path = (process.env.DISCORD_AUTH_CONFIG || '').trim();
+  if (!path) return {};
   try {
-    if (!fs.existsSync(PORTAL_AUTH_CONFIG)) return {};
-    const cfg = JSON.parse(fs.readFileSync(PORTAL_AUTH_CONFIG, 'utf8')) as {
+    if (!fs.existsSync(path)) return {};
+    const cfg = JSON.parse(fs.readFileSync(path, 'utf8')) as {
       client_id?: string;
       client_secret?: string;
       allowed_user_ids?: string[];
@@ -49,17 +56,17 @@ function loadPortalAuthFallback(): {
 }
 
 export function getDiscordOAuthConfig(): DiscordOAuthConfig {
-  const portal = loadPortalAuthFallback();
-  const clientId = (process.env.DISCORD_CLIENT_ID || portal.clientId || '').trim();
-  const clientSecret = (process.env.DISCORD_CLIENT_SECRET || portal.clientSecret || '').trim();
+  const file = loadDiscordAuthFileFallback();
+  const clientId = (process.env.DISCORD_CLIENT_ID || file.clientId || '').trim();
+  const clientSecret = (process.env.DISCORD_CLIENT_SECRET || file.clientSecret || '').trim();
   const redirectUri = (
     process.env.DISCORD_REDIRECT_URI ||
-    'https://mybookbrr.boznetwork.com/api/auth/discord/callback'
+    'http://127.0.0.1:7480/api/auth/discord/callback'
   ).trim();
   const allowedUserIds =
     parseIdList(process.env.DISCORD_ALLOWED_USER_IDS).length > 0
       ? parseIdList(process.env.DISCORD_ALLOWED_USER_IDS)
-      : portal.allowedUserIds || [];
+      : file.allowedUserIds || [];
   const defaultRole: UserRole =
     process.env.DISCORD_DEFAULT_ROLE === 'viewer' ? 'viewer' : 'admin';
   const enabled =

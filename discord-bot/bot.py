@@ -53,13 +53,14 @@ MYBOOKBRR_API_KEY = (
 PORTAL_HEARTBEAT_URL = config.get("PORTAL_HEARTBEAT_URL", "http://localhost:5000/api/heartbeat")
 BOT_ID = config.get("BOT_ID", "mybookbrr")
 BOT_SOCKET_PORT = int(config.get("IPC_PORT") or config.get("BOT_SOCKET_PORT") or 9998)
-PORTAL_AUTH_CONFIG = config.get(
-    "PORTAL_AUTH_CONFIG",
-    "/home/cris/discordbots/dashboard/auth_config.json",
-)
+# Optional path to JSON with flask_secret_key (or similar) for portal heartbeats.
+# Leave unset / empty to skip portal auth headers.
+PORTAL_AUTH_CONFIG = (config.get("PORTAL_AUTH_CONFIG") or "").strip()
 
 
 def get_portal_auth_headers() -> dict[str, str]:
+    if not PORTAL_AUTH_CONFIG:
+        return {}
     try:
         with open(PORTAL_AUTH_CONFIG, "r", encoding="utf-8") as f:
             data = json.load(f)

@@ -32,6 +32,6 @@ EXPOSE 7480
 VOLUME ["/app/data", "/app/downloads"]
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -f http://localhost:7480/api/auth/me || exit 1
+  CMD curl -fsS http://localhost:7480/api/v1/health || exit 1
 
 CMD ["node", "dist/server.js"]

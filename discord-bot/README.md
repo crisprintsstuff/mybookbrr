@@ -1,19 +1,19 @@
 # MyBookBRR Discord Bot
 
-Lives in the MyBookBRR monorepo under `discord-bot/`. Talks to the local `/api/v1` API and heartbeats the OmegaBot portal.
+Optional companion bot in this monorepo. Talks to the local MyBookBRR `/api/v1` API (slash commands + control panel). Optional heartbeat to a separate control portal if you run one.
 
 ## Setup
 
 1. Create a Discord application + bot; invite with `applications.commands` + `bot`.
 
-2. In MyBookBRR UI → **API Keys**, create a key with scopes:
+2. In MyBookBRR UI → **Admin → API keys**, create a key with scopes:
 
    `status:read`, `filters:read`, `filters:write`, `wishlist:read`, `wishlist:write`, `history:read`, `events:read`, `irc:control`
 
 3. Configure and run:
 
    ```bash
-   cd /home/cris/newprojects/mybookbrr/discord-bot
+   cd discord-bot
    cp config.example.json config.json
    # edit DISCORD_TOKEN + MYBOOKBRR_API_KEY
    python3 -m venv venv
@@ -22,7 +22,7 @@ Lives in the MyBookBRR monorepo under `discord-bot/`. Talks to the local `/api/v
    python bot.py
    ```
 
-4. Portal: entry id `mybookbrr` points at this directory (or the symlink at `/home/cris/discordbots/mybookbrr`).
+`config.json` is gitignored. See `config.example.json` for keys.
 
 ## Commands
 
@@ -40,6 +40,8 @@ Lives in the MyBookBRR monorepo under `discord-bot/`. Talks to the local `/api/v
 
 Mutating actions require the Discord role in `ALLOWED_ROLE_ID`.
 
-## Portal IPC
+## Optional portal IPC
 
-Listens on `127.0.0.1:9998` (config `IPC_PORT`) for `{ "action": "deploy_panel", "channel_id": "..." }` from the OmegaBot portal Broadcast Embed control.
+Listens on `127.0.0.1:9998` (config `IPC_PORT`) for `{ "action": "deploy_panel", "channel_id": "..." }` from an external portal if you use one.
+
+Optional `PORTAL_AUTH_CONFIG` in `config.json` points at a JSON file that may contain an auth token for portal heartbeats. Leave empty for standalone use.
