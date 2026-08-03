@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="MyBookBrr_fixed_LOGO.png" alt="MyBookBRR" width="520" />
+</p>
+
 # MyBookBRR
 
 Self-hosted **MyAnonamouse** auto-downloader in the spirit of [autobrr](https://autobrr.com): **IRC `#announce` snatching**, **wishlist/search polling**, filter rules, and push to **qBittorrent** (or a watch folder).
